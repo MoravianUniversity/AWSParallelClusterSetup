@@ -1,0 +1,3 @@
+*.pem
+hpc-aws/
+pcluster-config.yaml

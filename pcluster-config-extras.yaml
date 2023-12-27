@@ -1,0 +1,31 @@
+# This file is settings to be merged into the pcluster-config.yaml file after the initial configuration.
+HeadNode:
+  LocalStorage:
+    RootVolume:
+      Encrypted: false
+      # TODO: Size: 50
+      # TODO: DeleteOnTermination: false
+Scheduling:
+  SlurmSettings:
+    EnableMemoryBasedScheduling: true
+    ScaledownIdletime: 30  # default is 10 minutes
+    CustomSlurmSettings:
+      - SlurmctldDebug: info  # default is "verbose"
+      - Waittime: 30          # default is 0
+      - MaxJobCount: 1000     # default is 10000
+      - MaxStepCount: 4000    # default is 40000
+      - MaxTasksPerNode: 32   # default is 512
+      - PropagateResourceLimits: "NONE"  # default is "ALL"
+  SlurmQueues:
+    - Name: compute
+      CapacityType: "SPOT"  # default is "ON_DEMAND"
+      ComputeSettings:
+        LocalStorage:
+          EphemeralVolume:
+            MountDir: /scratch
+      CustomSlurmSettings:
+        MaxNodes: 4
+        MaxTime: "4:00:00"
+      ComputeResources:
+        - SchedulableMemory: 15600  # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
+        # TODO: DisableSimultaneousMultithreading: true
