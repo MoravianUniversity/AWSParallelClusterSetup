@@ -79,7 +79,7 @@ if ! [ -e pcluster-config.yaml ]; then
     # c5a.2xlarge
     # 24
     # y
-    # us-east-1d
+    # us-east-1a
     # 2
     #---------
     # Creates VPC but does not actually launch the cluster itself yet
@@ -121,8 +121,8 @@ else
     yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' pcluster-config.yaml
 fi
 
-# Set hostname
-yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"/usr/bin/hostnamectl","Args":["hostname","'"$DOMAIN_NAME"'"]}]' pcluster-config.yaml
+# Add initialization script
+yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"TODO","Args":["'"$DOMAIN_NAME"'"]}]' pcluster-config.yaml
 
 # All other configuration changes
 yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
@@ -145,7 +145,7 @@ yq -i '.Scheduling.SlurmSettings.Database.PasswordSecretArn = "'"$DB_SECRET_ARN"
 SUBNET_ID="$(yq ".HeadNode.Networking.SubnetId" pcluster-config.yaml)"
 VPC_ID="$(aws ec2 describe-subnets --subnet-ids "$SUBNET_ID" --query "Subnets[0].VpcId" --output text)"
 GF_SEC_GROUP="$(aws ec2 create-security-group --group-name grafana-sg --description "Open HTTP/HTTPS ports" --vpc-id "$VPC_ID" --output text 2>/dev/null)"
-if [ ! -z "$GF_SEC_GROUP" ]; then
+if [ -n "$GF_SEC_GROUP" ]; then
     # newly created security group
     aws ec2 authorize-security-group-ingress --group-id "$GF_SEC_GROUP" --protocol tcp --port 443 --cidr 0.0.0.0/0
     aws ec2 authorize-security-group-ingress --group-id "$GF_SEC_GROUP" --protocol tcp --port 80 --cidr 0.0.0.0/0
@@ -170,18 +170,7 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 
 # TODO:
 #   rocky8 image
-#   auto-setup users - where to put this script, how to trigger it, and where to put CSV file?
-    # while IFS=, read -r NEW_USER KEY; do
-    #     if [[ "$NEW_USER" =~ ^(root|centos|ec2-user|rocky|ubuntu)$ ]]; then echo "!!! Cannot create user $NEW_USER !!!"; continue fi
-    #     id $NEW_USER >/dev/null 2>&1 || sudo useradd "$NEW_USER" -m
-    #     if [[ ! -d "/home/$NEW_USER" ]]; then echo "!!! Cannot create user $NEW_USER !!!"; continue; fi
-    #     sudo mkdir -p -m 0700 "/home/$NEW_USER/.ssh"
-    #     if ! sudo grep -q $(cut -f2 -d " " <<<"$KEY") /home/$NEW_USER/.ssh/authorized_keys >/dev/null 2>&1; then
-    #         sudo tee "/home/$NEW_USER/.ssh/authorized_keys" <<<"$KEY" >/dev/null
-    #     fi
-    #     sudo chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
-    #     sudo chmod 0600 "/home/$NEW_USER/.ssh/authorized_keys"
-    # done < path/to/file.csv
+#   auto-setup users - working on
 #   add shared storage
 #     /home is shared which may be good enough
 #     but is it (or should it be) persistent?
@@ -189,6 +178,6 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #   *link domain name to cluster - working on
 #       likely working except the head node needs its hostname updated (sudo hostnamectl set-hostname mucluster.com)
 #   get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
-#   compare SLURM config (including prolog/epilog, especially for scratch; and job accounting)
+#   compare SLURM config (including prolog/epilog, especially for scratch; and job accounting*)
 #   tweak settings to make node idling less obnoixous - done? possibly set ComputeResources.MinCount=1 to make sure there is always 1 node
 #   check if all tools are installed and working (MPI, etc)
