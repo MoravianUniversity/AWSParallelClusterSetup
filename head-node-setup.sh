@@ -11,7 +11,7 @@
 # Set the hostname if provided in argument 1
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     echo "Setting hostname to $1"
-    hostnamectl hostname "$1"
+    hostnamectl set-hostname "$1"
 fi
 
 # Set up additional SSH users if provided in argument 2

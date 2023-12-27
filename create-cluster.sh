@@ -122,7 +122,10 @@ else
 fi
 
 # Add initialization script
-yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"TODO","Args":["'"$DOMAIN_NAME"'"]}]' pcluster-config.yaml
+# TODO: discover script path automatically
+REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
+HN_SETUP_SCRIPT="https://raw.githubusercontent.com/$REPO/main/head-node-setup.sh"
+yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'"]}]' pcluster-config.yaml
 
 # All other configuration changes
 yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
