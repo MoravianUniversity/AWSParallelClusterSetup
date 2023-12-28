@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# This script runs on the head node of the cluster and does additional
-# initialization on the cluster including:
+# This script runs on the head node of the cluster upon first boot before any
+# other cluster/Slurm setup. It initializes the following:
 #  - setting the hostname
 #  - setting up additional SSH users
 
@@ -12,6 +12,7 @@
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     echo "Setting hostname to '$1'"
     hostnamectl set-hostname "$1"
+    echo "127.0.0.1 $1" >/etc/hosts
 fi
 
 # Set up additional SSH users if provided in argument 2
