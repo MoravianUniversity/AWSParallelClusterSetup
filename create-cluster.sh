@@ -126,16 +126,23 @@ yq -i '.SharedStorage += [{
     "MountDir": "/home",
     "Name": "home",
     "StorageType": "Ebs",
-    "EbsOptions": { "VolumeId": "'"$EBS_VOLUME_ID"'" }
+    "EbsSettings": { "VolumeId": "'"$EBS_VOLUME_ID"'" }
 }]' pcluster-config.yaml
 
 # Add initialization script
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
-HN_SETUP_SCRIPT="https://raw.githubusercontent.com/$REPO/main/head-node-setup.sh"
+REPO_URL="https://raw.githubusercontent.com/$REPO/main"
+HN_SETUP_SCRIPT="$REPO_URL/head-node-setup.sh"
 yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'"]}]' pcluster-config.yaml
 S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$USER_KEYS_S3")"
 S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$USER_KEYS_S3")"
 yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
+
+# Add custom prolog/epilog scripts
+HN_CONFIG_SCRIPT="$REPO_URL/head-node-config.sh"
+PROLOG="$REPO_URL/50_hpc_cluster_slurm_prolog"
+EPILOG="$REPO_URL/50_hpc_cluster_slurm_epilog"
+yq -i '.HeadNode.CustomActions.OnNodeConfigured.Sequence += [{"Script":"'"$HN_CONFIG_SCRIPT"'","Args":["'"$PROLOG"'","'"$EPILOG"'"]}]' pcluster-config.yaml
 
 # All other configuration changes
 yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
@@ -193,9 +200,11 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 
 # TODO:
 #   *link domain name to cluster - nearly working
-#   *auto-setup users - nearly working
+#   *auto-setup users - nearly working (do we need to run this on the compute nodes as well?)
 #   *add persistent EBS volume for /home - nearly working
 #   rocky8 image
+#   Add custom prolog/epilog scripts to /opt/slurm/etc/scripts/{pro|epi}log.d/
+#       Set PrologFlags=contain?
 #   Add grafana - working on
 #     can install manually but has lots of problems:
 #       - should auto-install on config
@@ -203,11 +212,8 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #       - want a different landing page
 #       - should be able to view without logging in
 #       - customize the dashboards
-#   Add custom prolog/epilog scripts to /opt/slurm/etc/scripts/{pro|epi}log.d/
-#       Set PrologFlags=contain?
-#       Pay attention to scratch space clearing
 #
 # QUESTIONS/CONSIDERATIONS:
 #   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
-#   Consider setting ComputeResources.MinCount=1 to make sure there is always 1 node available?
+#   Set ComputeResources.MinCount=1 to make sure there is always 1 node available?
 #   Do all tools work? (MPI, etc)
