@@ -16,15 +16,14 @@ fi
 
 # Set up additional SSH users if provided in argument 2
 if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
-
-# Create a script for this so it can be used again at a later time
-SCRIPT_FILE="/root/create-users.sh"
-cat >"$SCRIPT_FILE" <<EOF
+    # Create a script for this so it can be used again at a later time
+    SCRIPT_FILE="/root/create-users.sh"
+    cat >"$SCRIPT_FILE" <<EOF
 export AWS_DEFAULT_REGION="$cfn_region"
 DEFAULT_URI="$2"
 
 EOF
-cat >>"$SCRIPT_FILE" <<'EOF'
+    cat >>"$SCRIPT_FILE" <<'EOF'
 function trim_csv() {
     X=$(sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" <<< "$1")
     if [[ ${X::1} == '"' ]] && [[ ${X: -1} == '"' ]]; then
@@ -71,10 +70,10 @@ while IFS=, read -r NEW_USER KEY; do
 done < "$CSV_FILE"
 exit 0
 EOF
-chmod 0755 "$SCRIPT_FILE"
+    chmod 0755 "$SCRIPT_FILE"
 
-# Run the script
-"$SCRIPT_FILE"
+    # Run the script
+    "$SCRIPT_FILE"
 
 fi
 
