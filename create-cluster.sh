@@ -172,15 +172,22 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #   About 3:45 minutes to boot an instance (without grafana)
 
 # TODO:
+#   *link domain name to cluster - nearly working
+#   *auto-setup users - nearly working    
 #   rocky8 image
-#   auto-setup users - working on
-#   add shared storage
-#     /home is shared which may be good enough
-#     but is it (or should it be) persistent?
-#   add grafana - working on
-#   *link domain name to cluster - working on
-#       likely working except the head node needs its hostname updated (sudo hostnamectl set-hostname mucluster.com)
-#   get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
-#   compare SLURM config (including prolog/epilog, especially for scratch; and job accounting*)
-#   tweak settings to make node idling less obnoixous - done? possibly set ComputeResources.MinCount=1 to make sure there is always 1 node
-#   check if all tools are installed and working (MPI, etc)
+#   Add grafana - working on
+#     can install manually but has lots of problems:
+#       - should auto-install on config
+#       - self-signed cert and cert doesn't use domain name
+#       - want a different landing page
+#       - should be able to view without logging in
+#       - customize the dashboards
+#   Add custom prolog/epilog scripts to /opt/slurm/etc/scripts/{pro|epi}log.d/
+#       Set PrologFlags=contain?
+#       Pay attention to scratch space clearing
+#
+# QUESTIONS/CONSIDERATIONS:
+#   Is /home persistant? Should it be?
+#   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
+#   Consider setting ComputeResources.MinCount=1 to make sure there is always 1 node available?
+#   Do all tools work? (MPI, etc)
