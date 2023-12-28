@@ -1,3 +1,5 @@
 *.pem
+*.csv
 hpc-aws/
+private/
 pcluster-config.yaml
