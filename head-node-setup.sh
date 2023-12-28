@@ -18,7 +18,7 @@ fi
 if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
 
 # Create a script for this so it can be used again at a later time
-SCRIPT_FILE="/home/$cfn_cluster_user/create-users.sh"
+SCRIPT_FILE="/root/create-users.sh"
 cat >"$SCRIPT_FILE" <<EOF
 export AWS_DEFAULT_REGION="$cfn_region"
 DEFAULT_URI="$2"
@@ -71,11 +71,10 @@ while IFS=, read -r NEW_USER KEY; do
 done < "$CSV_FILE"
 exit 0
 EOF
-chown "$cfn_cluster_user:$cfn_cluster_user" "$SCRIPT_FILE"
-chmod 0700 "$SCRIPT_FILE"
+chmod 0755 "$SCRIPT_FILE"
 
 # Run the script
-$SCRIPT_FILE
+"$SCRIPT_FILE"
 
 fi
 
