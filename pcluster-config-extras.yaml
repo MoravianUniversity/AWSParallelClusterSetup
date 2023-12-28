@@ -18,6 +18,8 @@ Scheduling:
       - PropagateResourceLimits: "NONE"  # default is "ALL"
       - AccountingStoreFlags: job_comment
       - CompleteWait: 8       # default is 0, recommended somwhere between 0 and 32
+      - DefMemPerCPU: 1280
+      - MaxMemPerCPU: 1945
   SlurmQueues:
     - Name: compute
       CapacityType: "SPOT"  # default is "ON_DEMAND"
