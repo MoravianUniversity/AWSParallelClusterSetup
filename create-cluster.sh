@@ -5,12 +5,12 @@
 
 ##### Basic AWS Setup #####
 # On AWS Console:
-# - Create new user "hpc-pcluster" with policy in pcluster-policy.json and pcluster-policy-roles.json  (these are the default config at https://docs.aws.amazon.com/parallelcluster/latest/ug/iam-roles-in-parallelcluster-v3.html#iam-roles-in-parallelcluster-v3-base-user-policy plus the "NetworkingEasyConfig" chunk)
-# - Add that user in ~/.aws/credentials
 # - Create new EC2 key pair "hpc-pcluster" and download the .pem file
 # - Register an elastic IP with a hpc-pcluster=true tag
-# - Register domain in Route 53 (e.g. "mucluster.com")
+# - Register domain in Route 53
 # - Set that domain's DNS to point to the elastic IP
+# - Create and validate a certificate for that domain in Certificate Manager
+# - Add a CSV to S3 for the user keys (first colunm is username, second column is public key)
 # - Run the CloudFormation stack at https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=pcluster-slurm-db&templateURL=https://us-east-1-aws-parallelcluster.s3.amazonaws.com/templates/1-click/serverless-database.yaml with the values:
 #   - Stack name: hpc-pcluster-slurm-db
 #   - Database cluster name: hpc-slurm-accounting-cluster
@@ -21,16 +21,17 @@
 
 # Update these with any changed values
 VENV="$PWD/hpc-aws"
-ADMIN_USER="bushj"  # admin user in ~/.aws/credentials
-PCLUSTER_USER="hpc-pcluster"  # restricted user in ~/.aws/credentials
+export AWS_PROFILE="bushj"
 export AWS_DEFAULT_REGION="us-east-1"
 AMI_IMAGE_ID="rocky-8"
 DB_CF_NAME="hpc-pcluster-slurm-db"
 DOMAIN_NAME="mucluster.com"
+USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
+GRAFANA_SG_NAME="grafana-sg"  # this just needs to be unique to this VPC
 
 
 # Allow use of spot instances (only needs to be done once for an entire AWS account)
-aws iam create-service-linked-role --profile "$ADMIN_USER" --aws-service-name spot.amazonaws.com
+aws iam create-service-linked-role --aws-service-name spot.amazonaws.com
 
 
 ##### Tool Setup #####
@@ -64,7 +65,6 @@ fi
 #    TODO: A c5ad.2xlarge node costs a bit more (~2c/hr) but has a 300 GB NVMe SSD for ephemeral storage
 #  The "2" option at the end causes us to make all machines public (instead of the 1/default option which makes compute nodes private)
 #    Would like the compute fleet to be in private subnet, but that would cost $150+ for the semester
-export AWS_PROFILE="$PCLUSTER_USER"
 if ! [ -e pcluster-config.yaml ]; then
     pcluster configure --config pcluster-config.yaml
     # Options:
@@ -91,9 +91,7 @@ fi
 #  - update version to 8.9 and AMI link according to https://rockylinux.org/cloud-images/
 #  - add Image.RootVolume.Size parameter since it was running out of room (set it to 48 GB, default was ~37 GB)
 # TODO
-export AWS_PROFILE="$ADMIN_USER"
 pcluster build-image --image-id "$AMI_IMAGE_ID" --image-configuration rocky-8.yaml
-export AWS_PROFILE="$PCLUSTER_USER"
 # Takes about an hour to build... check progress with:
 #pcluster describe-image --image-id "$AMI_IMAGE_ID"
 #pcluster list-images --image-status PENDING
@@ -122,10 +120,12 @@ else
 fi
 
 # Add initialization script
-# TODO: discover script path automatically
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
 HN_SETUP_SCRIPT="https://raw.githubusercontent.com/$REPO/main/head-node-setup.sh"
-yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'"]}]' pcluster-config.yaml
+yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'"]}]' pcluster-config.yaml
+S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$USER_KEYS_S3")"
+S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$USER_KEYS_S3")"
+yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
 
 # All other configuration changes
 yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
@@ -147,21 +147,33 @@ yq -i '.Scheduling.SlurmSettings.Database.PasswordSecretArn = "'"$DB_SECRET_ARN"
 ##### Setup Grafana #####
 SUBNET_ID="$(yq ".HeadNode.Networking.SubnetId" pcluster-config.yaml)"
 VPC_ID="$(aws ec2 describe-subnets --subnet-ids "$SUBNET_ID" --query "Subnets[0].VpcId" --output text)"
-GF_SEC_GROUP="$(aws ec2 create-security-group --group-name grafana-sg --description "Open HTTP/HTTPS ports" --vpc-id "$VPC_ID" --output text 2>/dev/null)"
+GF_SEC_GROUP="$(aws ec2 create-security-group --group-name "$GRAFANA_SG_NAME" --description "Open HTTP/HTTPS ports" --vpc-id "$VPC_ID" --output text 2>/dev/null)"
 if [ -n "$GF_SEC_GROUP" ]; then
     # newly created security group
     aws ec2 authorize-security-group-ingress --group-id "$GF_SEC_GROUP" --protocol tcp --port 443 --cidr 0.0.0.0/0
     aws ec2 authorize-security-group-ingress --group-id "$GF_SEC_GROUP" --protocol tcp --port 80 --cidr 0.0.0.0/0
 else
     # already exists
-    GF_SEC_GROUP="$(aws ec2 describe-security-groups --filters "Name=group-name,Values=grafana-sg" "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[0].GroupId" --output text)"
+    GF_SEC_GROUP="$(aws ec2 describe-security-groups --filters "Name=group-name,Values=$GRAFANA_SG_NAME" "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[0].GroupId" --output text)"
 fi
 yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$GF_SEC_GROUP"'"]' pcluster-config.yaml
+CERT="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?contains(SubjectAlternativeNameSummaries, '$DOMAIN_NAME') || DomainName == '$DOMAIN_NAME'].CertificateArn" --output text)"
+# TODO: create IAM policy for grafana to access the certificate whose ARN is in CERT
+# {
+#     "Version": "2012-10-17",
+#     "Statement": [
+#         {"Sid": "GetCert", "Effect": "Allow", "Action": "acm:GetCertificate", "Resource": "$CERT"},
+#         {"Sid": "ListCerts", "Effect": "Allow", "Action": "acm:ListCertificates", "Resource": "*"}
+#     ]
+# }
+# On the server:
+#     ARN="$(aws acm list-certificates --region "$cfn_region" --query "CertificateSummaryList[0].CertificateArn" --output text)"
+#     aws acm get-certificate --certificate-arn arn:aws:acm:us-east-1:936771282063:certificate/d38831a7-18fc-4003-a792-3e973c21e36c --region us-east-1 --query "Certificate" --output text >> ?/certificate.crt
+#     aws acm get-certificate --certificate-arn arn:aws:acm:us-east-1:936771282063:certificate/d38831a7-18fc-4003-a792-3e973c21e36c --region us-east-1 --query "CertificateChain" --output text >> ?/certificate-chain.crt
 yq -i '. *d load("pcluster-grafana.yaml")' pcluster-config.yaml
 
 
 ##### Create the cluster #####
-export AWS_PROFILE="$PCLUSTER_USER"
 #pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration pcluster-config.yaml
 pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration pcluster-config.yaml
 # pcluster describe-cluster --cluster-name hpc-cluster-test
@@ -173,7 +185,7 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 
 # TODO:
 #   *link domain name to cluster - nearly working
-#   *auto-setup users - nearly working    
+#   *auto-setup users - nearly working
 #   rocky8 image
 #   Add grafana - working on
 #     can install manually but has lots of problems:
