@@ -6,6 +6,7 @@
 ##### Basic AWS Setup #####
 # On AWS Console:
 # - Create new EC2 key pair "hpc-pcluster" and download the .pem file
+# - Create new EBS volume (~1 GB/student, can be expanded later with some work)
 # - Register an elastic IP with a hpc-pcluster=true tag
 # - Register domain in Route 53
 # - Set that domain's DNS to point to the elastic IP
@@ -27,6 +28,7 @@ AMI_IMAGE_ID="rocky-8"
 DB_CF_NAME="hpc-pcluster-slurm-db"
 DOMAIN_NAME="mucluster.com"
 USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
+EBS_VOLUME_ID="vol-02c42f64eace590fa"
 GRAFANA_SG_NAME="grafana-sg"  # this just needs to be unique to this VPC
 
 
@@ -119,6 +121,14 @@ else
     yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' pcluster-config.yaml
 fi
 
+# Add persistent EBS volume for /home
+yq -i '.SharedStorage += [{
+    "MountDir": "/home",
+    "Name": "home",
+    "StorageType": "Ebs",
+    "EbsOptions": { "VolumeId": "'"$EBS_VOLUME_ID"'" }
+}]' pcluster-config.yaml
+
 # Add initialization script
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
 HN_SETUP_SCRIPT="https://raw.githubusercontent.com/$REPO/main/head-node-setup.sh"
@@ -130,14 +140,12 @@ yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S
 # All other configuration changes
 yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
 
-
-##### Integrate Accounting #####
+# Integrate Accounting
 DB_URI="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseHost'].OutputValue" --output text)"
 DB_PORT="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabasePort'].OutputValue" --output text)"
 DB_USERNAME="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseAdminUser'].OutputValue" --output text)"
 DB_SECRET_ARN="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseSecretArn'].OutputValue" --output text)"
 DB_SEC_GROUP="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseClientSecurityGroup'].OutputValue" --output text)"
-
 yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$DB_SEC_GROUP"'"]' pcluster-config.yaml
 yq -i '.Scheduling.SlurmSettings.Database.Uri = "'"$DB_URI:$DB_PORT"'"' pcluster-config.yaml
 yq -i '.Scheduling.SlurmSettings.Database.UserName = "'"$DB_USERNAME"'"' pcluster-config.yaml
@@ -186,6 +194,7 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 # TODO:
 #   *link domain name to cluster - nearly working
 #   *auto-setup users - nearly working
+#   *add persistent EBS volume for /home - nearly working
 #   rocky8 image
 #   Add grafana - working on
 #     can install manually but has lots of problems:
@@ -199,7 +208,6 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #       Pay attention to scratch space clearing
 #
 # QUESTIONS/CONSIDERATIONS:
-#   Is /home persistant? Should it be?
 #   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
 #   Consider setting ComputeResources.MinCount=1 to make sure there is always 1 node available?
 #   Do all tools work? (MPI, etc)
