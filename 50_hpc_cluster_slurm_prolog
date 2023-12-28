@@ -1,0 +1,63 @@
+#!/usr/bin/bash
+# Runs when first job or job step initiation on that node
+#   With PrologFlags=Alloc will force the script to be executed at job allocation
+# Invoked by slurmd daemon as SlurmdUser (i.e. root)
+
+export PATH="/usr/share/Modules/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+SLURM_BIN=/usr/bin
+SLURM_SCONTROL=${SLURM_BIN}/scontrol
+SLURM_SINFO=${SLURM_BIN}/sinfo
+
+HOST_=$(/bin/hostname -s)
+
+if [ x$SLURM_JOB_UID = "x" ] || [ x$SLURM_JOB_ID = "x" ]; then exit 0; fi
+
+UNHEALTHY=0
+REASON=""
+
+# While dedicated nodes should never have a REASON when they enter the PROLOG
+# it is possible for a shared node to fail in the EPILOG of one job WHILE
+# the PROLOG for another job is running. Until we create a barrier that prevents
+# this we need to be more careful here...
+function check_status(){
+    # Mark node unhealthy if any check fails and append message to reason
+    if [[ $1 != "$2" ]]; then
+        if [[ $UNHEALTHY -eq 0 ]]; then
+            UNHEALTHY=1
+            PREV_REASON=$(${SLURM_SINFO} -o '%E' -hn ${HOST_} | /bin/sed -e '/^none$/d')
+            if [[ ${#PREV_REASON} -gt 0 ]]; then REASON="$PREV_REASON"; fi
+        fi
+        NEW_REASON="$3;"
+        # append new reason if it isn't already inside reason
+        if [[ "$REASON" != *$NEW_REASON* ]]; then REASON="$REASON$NEW_REASON"; fi
+    fi
+}
+
+# Create local scratch directory
+/bin/mkdir -p /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
+check_status 0 $? "PROLOG: Cannot create local scratch"
+
+# Set local scratch ownership and permissions
+/bin/chmod 700 /scratch/${SLURM_JOB_USER}
+check_status 0 $? "PROLOG: Cannot chmod user local scratch dir"
+/bin/chown -R ${SLURM_JOB_USER} /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
+check_status 0 $? "PROLOG: Cannot chown user local scratch dir"
+
+# Set NVIDIA driver modes
+#/usr/bin/nvidia-smi --compute-mode=0 >> /dev/null 2>&1
+#/usr/bin/nvidia-smi --persistence-mode=1 >> /dev/null 2>&1
+
+# Clean-up non-shared nodes
+if [[ $(ls -d /scratch/*/* | wc -l) -eq 1 ]]; then
+    /bin/sync
+    /bin/echo 3 > /proc/sys/vm/drop_caches
+fi
+
+# Offline node with REASON if prolog checks fail
+if [[ $UNHEALTHY -ne 0 ]]; then
+    ${SLURM_SCONTROL} update nodename=${HOST_} state=fail reason="${REASON}"
+     exit 1
+fi
+
+exit 0

@@ -1,0 +1,102 @@
+#!/usr/bin/bash
+# Runs at job termination
+# Invoked by slurmd daemon as SlurmdUser (i.e. root)
+
+SLURM_BIN=/usr/bin
+SLURM_SCONTROL=${SLURM_BIN}/scontrol
+SLURM_SINFO=${SLURM_BIN}/sinfo
+
+HOST_=$(/bin/hostname -s)
+
+if [ x$SLURM_JOB_UID = "x" ] || [ x$SLURM_JOB_ID = "x" ]; then exit 0; fi
+
+UNHEALTHY=0
+REASON=""
+
+function check_status(){
+    # Mark node unhealthy if any check fails and append message to reason
+    if [[ $1 != "$2" ]]; then
+        if [[ $UNHEALTHY -eq 0 ]]; then
+            UNHEALTHY=1
+            PREV_REASON=$(${SLURM_SINFO} -o '%E' -hn ${HOST_} | /bin/sed -e '/^none$/d')
+            if [[ ${#PREV_REASON} -gt 0 ]]; then REASON="$PREV_REASON"; fi
+        fi
+        NEW_REASON="$3;"
+        # append new reason if it isn't already inside reason
+        if [[ "$REASON" != *$NEW_REASON* ]]; then REASON="$REASON$NEW_REASON"; fi
+    fi
+}
+
+function user_cleanup(){
+    # Called at end of last job by user
+
+    # Give stuff a chance to cleanup
+    /usr/bin/killall -u ${SLURM_JOB_USER}
+
+    # kill leftover allocated semaphores, shared memory, and message queues
+    for S in $(/usr/bin/ipcs -s | /bin/grep "${SLURM_JOB_USER}" | /bin/awk '{print $2}'); do /usr/bin/ipcrm -s $S; done
+    for M in $(/usr/bin/ipcs -m "${SLURM_JOB_USER}" | /bin/grep -v key | /bin/awk '{print $2}'); do /usr/bin/ipcrm -m $M; done
+    for Q in $(/usr/bin/ipcs -q "${SLURM_JOB_USER}" | /bin/grep -v key | /bin/awk '{print $2}'); do /usr/bin/ipcrm -q $Q; done
+
+    # Left Over processes that do not kill
+    PIDS=$(/bin/ps -u ${SLURM_JOB_USER} -o "pid=")
+    if [[ -n "$PIDS" ]]; then /bin/sleep 20; /usr/bin/killall -9 -u ${SLURM_JOB_USER}; /bin/sleep 10; fi
+    PIDS=$(/bin/ps -u ${SLURM_JOB_USER} -o "pid=")
+    if [[ -n "$PIDS" ]]; then check_status 0 1 "EPILOG: Leftover process for ${SLURM_JOB_USER} from ${SLURM_JOB_ID}"; fi
+
+    # Remove any files the user created in /tmp or /dev/shm
+    # Don't recurse to remove directories, only remove files
+    /bin/find /tmp -user ${SLURM_JOB_USER} -type 'f' -print0 | /usr/bin/xargs -0 -r /bin/rm -f
+    /bin/find /dev/shm -user ${SLURM_JOB_USER} -type 'f' -print0 | /usr/bin/xargs -0 -r /bin/rm -f
+}
+
+#=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+SLURM_EPILOG_LOCK_FILE=/dev/shm/slurm.epilog.lock
+(
+    /usr/bin/flock -x 200
+    RVAL=$?
+    if [ $RVAL -ne 0 ]; then exit $RVAL; fi
+    if [ $SLURM_UID -lt 100 ]; then exit 0; fi # don't try to kill user root or system daemon jobs
+
+    # Check if there are any other users or jobs (race condition possible)
+    LIST=$(${SLURM_BIN}/squeue --noheader --format="%A|%U" --node=localhost);
+    HAS_OTHER_JOB=0;
+    HAS_OTHER_USER=0;
+    for ITEM in $LIST; do
+        JOB_ID=${STR%|*}; USER_ID=${STR#*|};
+        if [ $JOB_ID -ne $SLURM_JOB_ID ] ; then HAS_OTHER_JOB=1; fi
+        if [ $USER_ID -ne $SLURM_JOB_UID ] ; then HAS_OTHER_USER=1; fi
+    done
+
+    # Cleanup based on precense of other jobs or users on the node
+    if [[ $HAS_OTHER_JOB -eq 0 ]]; then
+        user_cleanup;
+        /bin/sync;
+        /bin/echo 3 > /proc/sys/vm/drop_caches;
+        #/usr/bin/nvidia-smi --persistence-mode=0 >> /dev/null 2>&1;
+    elif [[ $HAS_OTHER_USER -eq 0 ]]; then
+        user_cleanup;
+    fi
+
+    # Remove local per job scratch space
+    /bin/rm -rf /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
+    check_status 0 $? "Cannot remove local scratch space"
+
+    # Clean up /tmp and /dev/shm
+    # Get rid of all ordinary files older than 168h (7 days) and not accessed or modified in the past 168 hours
+    /usr/bin/find /tmp -xdev -atime +8 -mtime +8 -type 'f' -print0 | /usr/bin/xargs -0 -r /bin/rm -f
+    /usr/bin/find /dev/shm -xdev -atime +8 -mtime +8 -type 'f' -print0 | /usr/bin/xargs -0 -r /bin/rm -f
+
+    # Return GPU driver settings to default state
+    #/usr/bin/nvidia-smi --compute-mode=0 >> /dev/null 2>&1
+    exit 0
+) 200>${SLURM_EPILOG_LOCK_FILE}
+
+# Offline node with REASON if any epilog checks fail
+if [[ "$UNHEALTHY" -ne 0 ]]; then
+    ${SLURM_SCONTROL} update nodename=${HOST_} state=fail reason="${REASON}"
+    exit 1
+fi
+
+exit 0
