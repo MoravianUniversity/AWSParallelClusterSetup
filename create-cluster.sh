@@ -139,7 +139,7 @@ S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$USER_KEYS_S3")"
 yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
 
 CN_SETUP_SCRIPT="$REPO_URL/compute-node-setup.sh"
-yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"]}]' pcluster-config.yaml
+yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"}]' pcluster-config.yaml
 
 # Add custom prolog/epilog scripts
 HN_CONFIG_SCRIPT="$REPO_URL/head-node-config.sh"
