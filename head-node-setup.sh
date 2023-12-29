@@ -12,8 +12,20 @@
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     echo "Setting hostname to '$1'"
     hostnamectl set-hostname "$1"
-    echo "127.0.0.1 $1" >/etc/hosts
+    echo "127.0.0.1 $1" >>/etc/hosts
 fi
+
+# Set restrictive default umask
+mkdir -p -m 0755 /etc/profile.d
+cat >/etc/profile.d/set-umask.sh <<EOF
+# Set restrictive default umask
+umask 077
+EOF
+cp /etc/profile.d/set-umask.sh /etc/profile.d/set-umask.csh
+
+# Set up user.txt file
+touch /opt/parallelcluster/shared/users.txt
+chmod 0600 /opt/parallelcluster/shared/users.txt
 
 # Set up additional SSH users if provided in argument 2
 if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
@@ -33,6 +45,8 @@ function trim_csv() {
     echo "$X"
 }
 
+USERS_GID="$(getent group users | cut -d : -f 3)"
+
 # Download the CSV file
 [ -n "$1" ] && URI="$1" || URI="$DEFAULT_URI"
 echo "Setting up SSH users from $URI"
@@ -49,33 +63,51 @@ while IFS=, read -r NEW_USER KEY; do
     NEW_USER="$(trim_csv "$NEW_USER")"
     KEY="$(trim_csv "$KEY")"
 
-    # Skip empty lines and lines with missing values
-    if [ -z "$NEW_USER" ] || [ -z "$KEY" ]; then echo "Skipping $NEW_USER,$KEY"; continue; fi
+    # Skip empty lines and lines with missing or bad values
+    if [ -z "$NEW_USER" ] || [ -z "$KEY" ]; then echo "Skipping '$NEW_USER','$KEY'"; continue; fi
     if [[ "$NEW_USER" =~ ^(root|centos|ec2-user|rocky|ubuntu)$ ]]; then echo "!!! Cannot create user $NEW_USER !!!"; continue; fi
 
     # Create the user
-    echo "Creating user '$NEW_USER'"
-    id $NEW_USER >/dev/null 2>&1 || useradd "$NEW_USER" -m
-    if [[ ! -d "/home/$NEW_USER" ]]; then echo "!!! Cannot create user $NEW_USER !!!"; continue; fi
+    HOME_DIR="/home/$NEW_USER"
+    if ! id $NEW_USER >/dev/null 2>&1; then
+        # User does not exist
+        echo "Creating user '$NEW_USER'"
+        if [[ -d "$HOME_DIR" ]]; then
+            # Already has a home directory
+            useradd -d "$HOME_DIR" -M -N -g "$USERS_GID" "$NEW_USER"
+            chown -R "$NEW_USER:users" "$HOME_DIR"
+        else
+            # Make a new home directory
+            useradd -d "$HOME_DIR" -m -N -g "$USERS_GID" "$NEW_USER"
+        fi
+        chmod 0700 "$HOME_DIR"
+
+        # Save information about the user
+        NEW_UID="$(id -u "$NEW_USER")"
+        echo "$NEW_UID $NEW_USER" >> /opt/parallelcluster/shared/users.txt
+    fi
+    if [[ ! -d "$HOME_DIR" ]]; then echo "!!! Failed to create user $NEW_USER !!!"; continue; fi
 
     # Add the SSH key
-    echo "Adding SSH key for '$NEW_USER'"
-    mkdir -p -m 0700 "/home/$NEW_USER/.ssh"
-    if ! grep -q $(cut -f2 -d " " <<<"$KEY") /home/$NEW_USER/.ssh/authorized_keys >/dev/null 2>&1; then
-        tee "/home/$NEW_USER/.ssh/authorized_keys" <<<"$KEY" >/dev/null
+    SSH_DIR="$HOME_DIR/.ssh"
+    AUTH_KEYS="$SSH_DIR/authorized_keys"
+    if ! grep -q $(cut -f2 -d " " <<<"$KEY") "$AUTH_KEYS" >/dev/null 2>&1; then
+        echo "Adding SSH key for '$NEW_USER'"
+        mkdir -p -m 0700 "$SSH_DIR"
+        echo "$KEY" >>"$AUTH_KEYS"
     fi
 
     # Fix permissions
-    chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
-    chmod 0600 "/home/$NEW_USER/.ssh/authorized_keys"
+    chown -R "$NEW_USER:users" "$SSH_DIR"
+    chmod 0600 "$AUTH_KEYS"
 done < "$CSV_FILE"
+
 exit 0
 EOF
     chmod 0755 "$SCRIPT_FILE"
 
     # Run the script
     "$SCRIPT_FILE"
-
 fi
 
 exit 0

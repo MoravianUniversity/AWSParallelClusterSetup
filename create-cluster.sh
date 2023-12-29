@@ -129,7 +129,7 @@ yq -i '.SharedStorage += [{
     "EbsSettings": { "VolumeId": "'"$EBS_VOLUME_ID"'" }
 }]' pcluster-config.yaml
 
-# Add initialization script
+# Add initialization scripts
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
 REPO_URL="https://raw.githubusercontent.com/$REPO/main"
 HN_SETUP_SCRIPT="$REPO_URL/head-node-setup.sh"
@@ -137,6 +137,9 @@ yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_S
 S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$USER_KEYS_S3")"
 S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$USER_KEYS_S3")"
 yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
+
+CN_SETUP_SCRIPT="$REPO_URL/compute-node-setup.sh"
+yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"]}]' pcluster-config.yaml
 
 # Add custom prolog/epilog scripts
 HN_CONFIG_SCRIPT="$REPO_URL/head-node-config.sh"
@@ -192,6 +195,7 @@ yq -i '. *d load("pcluster-grafana.yaml")' pcluster-config.yaml
 #pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration pcluster-config.yaml
 pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration pcluster-config.yaml
 # pcluster describe-cluster --cluster-name hpc-cluster-test
+# pcluster ssh --region us-east-1 --cluster-name hpc-cluster-test -i hpc-pcluster.pem
 # pcluster update-cluster --cluster-name hpc-cluster-test --cluster-configuration pcluster-config.yaml
 # pcluster delete-cluster --cluster-name hpc-cluster-test
 
@@ -199,12 +203,12 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #   About 3:45 minutes to boot an instance (without grafana)
 
 # TODO:
-#   *link domain name to cluster - nearly working
-#   *auto-setup users - nearly working (do we need to run this on the compute nodes as well?)
-#   *add persistent EBS volume for /home - nearly working
+#   **link domain name to cluster - nearly working
+#   *auto-setup users - nearly working
+#       do we need to run this on the compute nodes as well?
+#   **add persistent EBS volume for /home - nearly working
+#   **add custom prolog/epilog scripts - nearly working
 #   rocky8 image
-#   Add custom prolog/epilog scripts to /opt/slurm/etc/scripts/{pro|epi}log.d/
-#       Set PrologFlags=contain?
 #   Add grafana - working on
 #     can install manually but has lots of problems:
 #       - should auto-install on config
