@@ -203,11 +203,6 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #   About 3:45 minutes to boot an instance (without grafana)
 
 # TODO:
-#   **link domain name to cluster - nearly working
-#   *auto-setup users - nearly working
-#       do we need to run this on the compute nodes as well?
-#   **add persistent EBS volume for /home - nearly working
-#   **add custom prolog/epilog scripts - nearly working
 #   rocky8 image
 #   Add grafana - working on
 #     can install manually but has lots of problems:
