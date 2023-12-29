@@ -35,12 +35,14 @@ function check_status(){
 }
 
 # Create local scratch directory
-/bin/mkdir -p /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
+/bin/mkdir -p -m 0700 /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
 check_status 0 $? "PROLOG: Cannot create local scratch"
 
 # Set local scratch ownership and permissions
-/bin/chmod 700 /scratch/${SLURM_JOB_USER}
+/bin/chmod 0700 /scratch/${SLURM_JOB_USER}
 check_status 0 $? "PROLOG: Cannot chmod user local scratch dir"
+/bin/chown ${SLURM_JOB_USER} /scratch/${SLURM_JOB_USER}
+check_status 0 $? "PROLOG: Cannot chown user local scratch dir"
 /bin/chown -R ${SLURM_JOB_USER} /scratch/${SLURM_JOB_USER}/job_${SLURM_JOB_ID}
 check_status 0 $? "PROLOG: Cannot chown user local scratch dir"
 
