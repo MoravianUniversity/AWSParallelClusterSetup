@@ -28,9 +28,15 @@ function download() {
 }
 
 # Add prolog from argument 1
-[[ "$1" =~ ^(s3|http|https)://.* ]] && download "$1" "/opt/slurm/etc/scripts/prolog.d"
+if [[ "$1" =~ ^(s3|http|https)://.* ]]; then
+    download "$1" "/opt/slurm/etc/scripts/prolog.d"
+    chmod +x /opt/slurm/etc/scripts/prolog.d/*
+fi
 
 # Add epilog from argument 2
-[[ "$2" =~ ^(s3|http|https)://.* ]] && download "$2" "/opt/slurm/etc/scripts/epilog.d"
+if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
+    download "$2" "/opt/slurm/etc/scripts/epilog.d"
+    chmod +x /opt/slurm/etc/scripts/epilog.d/*
+fi
 
 exit 0
