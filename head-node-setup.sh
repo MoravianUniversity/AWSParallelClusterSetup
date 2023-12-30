@@ -110,4 +110,20 @@ EOF
     "$SCRIPT_FILE"
 fi
 
+# Set up host keys if provided in argument 3
+if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
+    echo "Adding host keys from $3"
+    TARBALL="/tmp/ssh-host-keys.tar.gz"
+    if [[ "$3" =~ ^s3 ]]; then
+        aws s3 cp "$3" "$TARBALL" --no-progress || exit 1
+    else
+        wget -nv -O "$TARBALL" "$3" || exit 1
+    fi
+    tar -C /etc/ssh -xzf "$TARBALL"
+    chown root:ssh_keys /etc/ssh/ssh_host_*_key
+    chown root:root /etc/ssh/ssh_host_*_key.pub
+    chmod 0640 /etc/ssh/ssh_host_*_key
+    chmod 0644 /etc/ssh/ssh_host_*_key.pub
+fi
+
 exit 0

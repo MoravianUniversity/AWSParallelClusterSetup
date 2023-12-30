@@ -11,7 +11,13 @@
 # - Register domain in Route 53
 # - Set that domain's DNS to point to the elastic IP
 # - Create and validate a certificate for that domain in Certificate Manager
-# - Add a CSV to S3 for the user keys (first colunm is username, second column is public key)
+# - Add a CSV to S3 for the user keys (first column is username, second column is public key)
+# - Create a tarball with host private and public host keys and upload to S3:
+#       mkdir -p host-keys
+#       ssh-keygen -q -N "" -t rsa -b 4096 -f host-keys/ssh_host_rsa_key
+#       ssh-keygen -q -N "" -t ecdsa -f host-keys/ssh_host_ecdsa_key
+#       ssh-keygen -q -N "" -t ed25519 -f host-keys/ssh_host_ed25519_key
+#       cd host-keys && tar -czf ../host-keys.tar.gz * && cd ..
 # - Run the CloudFormation stack at https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=pcluster-slurm-db&templateURL=https://us-east-1-aws-parallelcluster.s3.amazonaws.com/templates/1-click/serverless-database.yaml with the values:
 #   - Stack name: hpc-pcluster-slurm-db
 #   - Database cluster name: hpc-slurm-accounting-cluster
@@ -28,6 +34,7 @@ AMI_IMAGE_ID="rocky-8"
 DB_CF_NAME="hpc-pcluster-slurm-db"
 DOMAIN_NAME="mucluster.com"
 USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
+HOST_KEYS_S3="s3://mu-hpc-pcluster/host-keys.tar.gz"
 EBS_VOLUME_ID="vol-02c42f64eace590fa"
 GRAFANA_SG_NAME="grafana-sg"  # this just needs to be unique to this VPC
 
@@ -133,12 +140,16 @@ yq -i '.SharedStorage += [{
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
 REPO_URL="https://raw.githubusercontent.com/$REPO/main"
 HN_SETUP_SCRIPT="$REPO_URL/head-node-setup.sh"
-yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'"]}]' pcluster-config.yaml
-S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$USER_KEYS_S3")"
-S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$USER_KEYS_S3")"
-yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
-
+yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'","'"$HOST_KEYS_S3"'"]}]' pcluster-config.yaml
+function add_s3_access() {
+    S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$1")"
+    S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$1")"
+    yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
+}
+add_s3_access "$USER_KEYS_S3"
+add_s3_access "$HOST_KEYS_S3"
 CN_SETUP_SCRIPT="$REPO_URL/compute-node-setup.sh"
+
 yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"}]' pcluster-config.yaml
 
 # Add custom prolog/epilog scripts
@@ -203,14 +214,16 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 #   About 3:45 minutes to boot an instance (without grafana)
 
 # TODO:
+#   *Set host keys to be persistent
 #   rocky8 image
 #   Add grafana - working on
 #     can install manually but has lots of problems:
-#       - should auto-install on config
-#       - self-signed cert and cert doesn't use domain name
-#       - want a different landing page
+#       - should auto-install on config -> should work with more recent OS and admin user
+#       - self-signed cert and cert doesn't use domain name -> working on (will use AWS ACM)
+#       - want a different landing page -> edit https://github.com/aws-samples/aws-parallelcluster-monitoring/blob/main/www/index.html
 #       - should be able to view without logging in
 #       - customize the dashboards
+#   job numbering after rebuild
 #
 # QUESTIONS/CONSIDERATIONS:
 #   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
