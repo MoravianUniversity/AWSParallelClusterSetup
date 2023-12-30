@@ -37,7 +37,7 @@ USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
 HOST_KEYS_S3="s3://mu-hpc-pcluster/host-keys.tar.gz"
 EBS_VOLUME_ID="vol-02c42f64eace590fa"
 GRAFANA_SG_NAME="grafana-sg"  # this just needs to be unique to this VPC
-
+CONFIG_FILE="pcluster-config.yaml"
 
 # Allow use of spot instances (only needs to be done once for an entire AWS account)
 aws iam create-service-linked-role --aws-service-name spot.amazonaws.com
@@ -74,8 +74,8 @@ fi
 #    TODO: A c5ad.2xlarge node costs a bit more (~2c/hr) but has a 300 GB NVMe SSD for ephemeral storage
 #  The "2" option at the end causes us to make all machines public (instead of the 1/default option which makes compute nodes private)
 #    Would like the compute fleet to be in private subnet, but that would cost $150+ for the semester
-if ! [ -e pcluster-config.yaml ]; then
-    pcluster configure --config pcluster-config.yaml
+if ! [ -e "$CONFIG_FILE" ]; then
+    pcluster configure --config "$CONFIG_FILE"
     # Options:
     # us-east-1
     # hpc-pcluster
@@ -113,7 +113,7 @@ if ! which jq >/dev/null 2>&1; then brew install jq; fi
 
 #AMI_ID="$(pcluster describe-image --image-id "$AMI_IMAGE_ID" --query 'ec2AmiInfo.amiId')"
 #AMI_ID="$(pcluster list-images --image-status AVAILABLE --query "images[?imageId=='$AMI_IMAGE_ID'].ec2AmiInfo.amiId")"
-# TODO: yq -i '.Image.CustomAmi = '"$AMI_ID" pcluster-config.yaml
+# TODO: yq -i '.Image.CustomAmi = '"$AMI_ID" "$CONFIG_FILE"
 
 # Set IP address
 ELASTIC_IPS="$(aws ec2 describe-addresses --filters "Name=tag:hpc-pcluster,Values=true" "Name=domain,Values=vpc" --query "Addresses[?NetworkInterfaceId == null].PublicIp")"
@@ -122,10 +122,10 @@ elif [ "$(jq length <<<"$ELASTIC_IPS")" -gt 1 ]; then
     # FUTURE TODO
     echo "!!! Multiple elastic IPs available !!!";
     ELASTIC_IP="$(jq -r '.[0]' <<<"$ELASTIC_IPS")"
-    yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' pcluster-config.yaml
+    yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' "$CONFIG_FILE"
 else
     ELASTIC_IP="$(jq -r '.[0]' <<<"$ELASTIC_IPS")"
-    yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' pcluster-config.yaml
+    yq -i '.HeadNode.Networking.ElasticIp = "'"$ELASTIC_IP"'"' "$CONFIG_FILE"
 fi
 
 # Add persistent EBS volume for /home
@@ -134,32 +134,32 @@ yq -i '.SharedStorage += [{
     "Name": "home",
     "StorageType": "Ebs",
     "EbsSettings": { "VolumeId": "'"$EBS_VOLUME_ID"'" }
-}]' pcluster-config.yaml
+}]' "$CONFIG_FILE"
 
 # Add initialization scripts
 REPO="$(git remote get-url origin | sed -E -e 's~^(git@[^:]+:|https?://[^/]+/)([[:graph:]]*).git~\2~')"
 REPO_URL="https://raw.githubusercontent.com/$REPO/main"
 HN_SETUP_SCRIPT="$REPO_URL/head-node-setup.sh"
-yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'","'"$HOST_KEYS_S3"'"]}]' pcluster-config.yaml
+yq -i '.HeadNode.CustomActions.OnNodeStart.Sequence += [{"Script":"'"$HN_SETUP_SCRIPT"'","Args":["'"$DOMAIN_NAME"'","'"$USER_KEYS_S3"'","'"$HOST_KEYS_S3"'"]}]' "$CONFIG_FILE"
 function add_s3_access() {
     S3_BUCKET="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\1~" <<< "$1")"
     S3_KEY="$(sed -E -e "s~^s3://([^/]*)/(.*)$~\2~" <<< "$1")"
-    yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' pcluster-config.yaml
+    yq -i '.HeadNode.Iam.S3Access += [{"BucketName":"'"$S3_BUCKET"'","KeyName":"'"$S3_KEY"'"}]' "$CONFIG_FILE"
 }
 add_s3_access "$USER_KEYS_S3"
 add_s3_access "$HOST_KEYS_S3"
 CN_SETUP_SCRIPT="$REPO_URL/compute-node-setup.sh"
 
-yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"}]' pcluster-config.yaml
+yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"}]' "$CONFIG_FILE"
 
 # Add custom prolog/epilog scripts
 HN_CONFIG_SCRIPT="$REPO_URL/head-node-config.sh"
 PROLOG="$REPO_URL/50_hpc_cluster_slurm_prolog"
 EPILOG="$REPO_URL/50_hpc_cluster_slurm_epilog"
-yq -i '.HeadNode.CustomActions.OnNodeConfigured.Sequence += [{"Script":"'"$HN_CONFIG_SCRIPT"'","Args":["'"$PROLOG"'","'"$EPILOG"'"]}]' pcluster-config.yaml
+yq -i '.HeadNode.CustomActions.OnNodeConfigured.Sequence += [{"Script":"'"$HN_CONFIG_SCRIPT"'","Args":["'"$PROLOG"'","'"$EPILOG"'"]}]' "$CONFIG_FILE"
 
 # All other configuration changes
-yq -i '. *d load("pcluster-config-extras.yaml")' pcluster-config.yaml
+yq -i '. *d load("pcluster-config-extras.yaml")' "$CONFIG_FILE"
 
 # Integrate Accounting
 DB_URI="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseHost'].OutputValue" --output text)"
@@ -167,14 +167,14 @@ DB_PORT="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query
 DB_USERNAME="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseAdminUser'].OutputValue" --output text)"
 DB_SECRET_ARN="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseSecretArn'].OutputValue" --output text)"
 DB_SEC_GROUP="$(aws cloudformation describe-stacks --stack-name "$DB_CF_NAME" --query "Stacks[0].Outputs[?OutputKey=='DatabaseClientSecurityGroup'].OutputValue" --output text)"
-yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$DB_SEC_GROUP"'"]' pcluster-config.yaml
-yq -i '.Scheduling.SlurmSettings.Database.Uri = "'"$DB_URI:$DB_PORT"'"' pcluster-config.yaml
-yq -i '.Scheduling.SlurmSettings.Database.UserName = "'"$DB_USERNAME"'"' pcluster-config.yaml
-yq -i '.Scheduling.SlurmSettings.Database.PasswordSecretArn = "'"$DB_SECRET_ARN"'"' pcluster-config.yaml
+yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$DB_SEC_GROUP"'"]' "$CONFIG_FILE"
+yq -i '.Scheduling.SlurmSettings.Database.Uri = "'"$DB_URI:$DB_PORT"'"' "$CONFIG_FILE"
+yq -i '.Scheduling.SlurmSettings.Database.UserName = "'"$DB_USERNAME"'"' "$CONFIG_FILE"
+yq -i '.Scheduling.SlurmSettings.Database.PasswordSecretArn = "'"$DB_SECRET_ARN"'"' "$CONFIG_FILE"
 
 
 ##### Setup Grafana #####
-SUBNET_ID="$(yq ".HeadNode.Networking.SubnetId" pcluster-config.yaml)"
+SUBNET_ID="$(yq ".HeadNode.Networking.SubnetId" "$CONFIG_FILE")"
 VPC_ID="$(aws ec2 describe-subnets --subnet-ids "$SUBNET_ID" --query "Subnets[0].VpcId" --output text)"
 GF_SEC_GROUP="$(aws ec2 create-security-group --group-name "$GRAFANA_SG_NAME" --description "Open HTTP/HTTPS ports" --vpc-id "$VPC_ID" --output text 2>/dev/null)"
 if [ -n "$GF_SEC_GROUP" ]; then
@@ -185,29 +185,37 @@ else
     # already exists
     GF_SEC_GROUP="$(aws ec2 describe-security-groups --filters "Name=group-name,Values=$GRAFANA_SG_NAME" "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[0].GroupId" --output text)"
 fi
-yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$GF_SEC_GROUP"'"]' pcluster-config.yaml
-CERT="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?contains(SubjectAlternativeNameSummaries, '$DOMAIN_NAME') || DomainName == '$DOMAIN_NAME'].CertificateArn" --output text)"
-# TODO: create IAM policy for grafana to access the certificate whose ARN is in CERT
-# {
-#     "Version": "2012-10-17",
-#     "Statement": [
-#         {"Sid": "GetCert", "Effect": "Allow", "Action": "acm:GetCertificate", "Resource": "$CERT"},
-#         {"Sid": "ListCerts", "Effect": "Allow", "Action": "acm:ListCertificates", "Resource": "*"}
-#     ]
-# }
+yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$GF_SEC_GROUP"'"]' "$CONFIG_FILE"
+
+# Get certificate ARN and reate IAM policy for grafana to access the certificate
+CERT_ARN="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?contains(SubjectAlternativeNameSummaries, '$DOMAIN_NAME') || DomainName == '$DOMAIN_NAME'].CertificateArn" --output text)"
+IAM_ARN="$(aws iam create-policy \
+    --policy-name "hpc-pcluster-cert" \
+    --policy-document '{
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Sid": "GetCert", "Effect": "Allow", "Action": "acm:GetCertificate", "Resource": "'"$CERT_ARN"'"},
+            {"Sid": "ListCerts", "Effect": "Allow", "Action": "acm:ListCertificates", "Resource": "*"}
+        ]
+    }' \
+    --description "This policy grants access to retrieve the ACM certificate for the HPC cluster" \
+    --query "Policy.Arn" --output text)"
+yq -i '.HeadNode.Iam.AdditionalIamPolicies += [{"Policy":"'"$IAM_ARN"'"}]' "$CONFIG_FILE"
+
 # On the server:
-#     ARN="$(aws acm list-certificates --region "$cfn_region" --query "CertificateSummaryList[0].CertificateArn" --output text)"
-#     aws acm get-certificate --certificate-arn arn:aws:acm:us-east-1:936771282063:certificate/d38831a7-18fc-4003-a792-3e973c21e36c --region us-east-1 --query "Certificate" --output text >> ?/certificate.crt
-#     aws acm get-certificate --certificate-arn arn:aws:acm:us-east-1:936771282063:certificate/d38831a7-18fc-4003-a792-3e973c21e36c --region us-east-1 --query "CertificateChain" --output text >> ?/certificate-chain.crt
-yq -i '. *d load("pcluster-grafana.yaml")' pcluster-config.yaml
+#     CERT_ARN="$(aws acm list-certificates --region "$cfn_region" --query "CertificateSummaryList[0].CertificateArn" --output text)"
+#     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "Certificate" --output text >> ?/certificate.crt
+#     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "CertificateChain" --output text >> ?/certificate-chain.crt
+
+yq -i '. *d load("pcluster-grafana.yaml")' "$CONFIG_FILE"
 
 
 ##### Create the cluster #####
-#pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration pcluster-config.yaml
-pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration pcluster-config.yaml
+#pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
+pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration "$CONFIG_FILE"
 # pcluster describe-cluster --cluster-name hpc-cluster-test
 # pcluster ssh --region us-east-1 --cluster-name hpc-cluster-test -i hpc-pcluster.pem
-# pcluster update-cluster --cluster-name hpc-cluster-test --cluster-configuration pcluster-config.yaml
+# pcluster update-cluster --cluster-name hpc-cluster-test --cluster-configuration "$CONFIG_FILE"
 # pcluster delete-cluster --cluster-name hpc-cluster-test
 
 # Notes:
