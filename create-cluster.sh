@@ -30,7 +30,7 @@
 VENV="$PWD/hpc-aws"
 export AWS_PROFILE="bushj"
 export AWS_DEFAULT_REGION="us-east-1"
-AMI_IMAGE_ID="rocky-8"
+AMI_IMAGE_ID="rocky-88"
 DB_CF_NAME="hpc-pcluster-slurm-db"
 DOMAIN_NAME="mucluster.com"
 USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
@@ -95,25 +95,24 @@ if ! [ -e "$CONFIG_FILE" ]; then
 fi
 
 ##### Build Rocky 8 image #####
-# From https://ciq.com/blog/how-to-use-aws-parallelcluster-3-8-0-with-rocky-linux-8/
-# Create rocky-8.yaml file as described there but needed to:
-#  - update version to 8.9 and AMI link according to https://rockylinux.org/cloud-images/
-#  - add Image.RootVolume.Size parameter since it was running out of room (set it to 48 GB, default was ~37 GB)
-# TODO
-pcluster build-image --image-id "$AMI_IMAGE_ID" --image-configuration rocky-8.yaml
+# Adapted from https://ciq.com/blog/how-to-use-aws-parallelcluster-3-8-0-with-rocky-linux-8/
+# Create rocky-88.yaml file as described there but needed to:
+#  - get AMI link according to https://rockylinux.org/cloud-images/ (correct region, arch, and not using LVM)
+#  - add Image.RootVolume.Size parameter since it was running out of room (set it to 42 GB, default was ~37 GB)
+pcluster build-image --image-id "$AMI_IMAGE_ID" --image-configuration rocky-88.yaml
 # Takes about an hour to build... check progress with:
 #pcluster describe-image --image-id "$AMI_IMAGE_ID"
 #pcluster list-images --image-status PENDING
-# If it fails need to do a rollback on the CloudFormation stack and delete the stack
+# If it fails need to delete the CloudFormation stack
 
 
 ##### Update Config #####
 if ! which yq >/dev/null 2>&1; then brew install yq; fi
 if ! which jq >/dev/null 2>&1; then brew install jq; fi
 
-#AMI_ID="$(pcluster describe-image --image-id "$AMI_IMAGE_ID" --query 'ec2AmiInfo.amiId')"
+AMI_ID="$(pcluster describe-image --image-id "$AMI_IMAGE_ID" --query 'ec2AmiInfo.amiId')"
 #AMI_ID="$(pcluster list-images --image-status AVAILABLE --query "images[?imageId=='$AMI_IMAGE_ID'].ec2AmiInfo.amiId")"
-# TODO: yq -i '.Image.CustomAmi = '"$AMI_ID" "$CONFIG_FILE"
+yq -i '.Image.CustomAmi = '"$AMI_ID" "$CONFIG_FILE"
 
 # Set IP address
 ELASTIC_IPS="$(aws ec2 describe-addresses --filters "Name=tag:hpc-pcluster,Values=true" "Name=domain,Values=vpc" --query "Addresses[?NetworkInterfaceId == null].PublicIp")"
@@ -223,7 +222,7 @@ pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration 
 
 # TODO:
 #   *Set host keys to be persistent
-#   rocky8 image
+#   *rocky8 image
 #   Add grafana - working on
 #     can install manually but has lots of problems:
 #       - should auto-install on config -> should work with more recent OS and admin user

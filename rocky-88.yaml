@@ -1,0 +1,9 @@
+# From https://ciq.com/blog/how-to-use-aws-parallelcluster-3-8-0-with-rocky-linux-8/
+Region: us-east-1
+Image:
+  Name: Rocky Linux 8.8 Custom AMI for PCluster 3.8.0
+  RootVolume:
+    Size: 42
+Build:
+  ParentImage: ami-093bfdaaa5ea85b41 # does not use LVM
+  InstanceType: c5a.4xlarge

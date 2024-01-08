@@ -1,5 +1,6 @@
 *.pem
 *.csv
 *.tar.gz
+*.log
 hpc-aws/
 pcluster-config.yaml
