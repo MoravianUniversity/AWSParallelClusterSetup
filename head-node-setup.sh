@@ -119,11 +119,12 @@ if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
     else
         wget -nv -O "$TARBALL" "$3" || exit 1
     fi
-    tar -C /etc/ssh -xzf "$TARBALL"
+    tar --overwrite -C /etc/ssh -xzf "$TARBALL"
     chown root:ssh_keys /etc/ssh/ssh_host_*_key
     chown root:root /etc/ssh/ssh_host_*_key.pub
     chmod 0640 /etc/ssh/ssh_host_*_key
     chmod 0644 /etc/ssh/ssh_host_*_key.pub
+    systemctl restart sshd
 fi
 
 exit 0
