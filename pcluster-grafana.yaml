@@ -4,7 +4,7 @@ HeadNode:
   CustomActions:
     OnNodeConfigured:
       Sequence:
-        - Script: https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-monitoring/main/post-install.sh
+        - Script: https://raw.githubusercontent.com/drekdrek/aws-parallelcluster-monitoring/main/post-install.sh
           Args:
             - v0.9
   Iam:
@@ -19,7 +19,7 @@ Scheduling:
     - CustomActions:
         OnNodeConfigured:
           Sequence:
-            - Script: https://raw.githubusercontent.com/aws-samples/aws-parallelcluster-monitoring/main/post-install.sh
+            - Script: https://raw.githubusercontent.com/drekdrek/aws-parallelcluster-monitoring/main/post-install.sh
               Args:
                 - v0.9
       Iam:

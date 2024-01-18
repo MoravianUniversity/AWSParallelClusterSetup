@@ -110,6 +110,7 @@ pcluster build-image --image-id "$AMI_IMAGE_ID" --image-configuration rocky-88.y
 if ! which yq >/dev/null 2>&1; then brew install yq; fi
 if ! which jq >/dev/null 2>&1; then brew install jq; fi
 
+# Note: AMI_ID is surrounded by quotes (pcluster does not support the --output text option)
 AMI_ID="$(pcluster describe-image --image-id "$AMI_IMAGE_ID" --query 'ec2AmiInfo.amiId')"
 #AMI_ID="$(pcluster list-images --image-status AVAILABLE --query "images[?imageId=='$AMI_IMAGE_ID'].ec2AmiInfo.amiId")"
 yq -i '.Image.CustomAmi = '"$AMI_ID" "$CONFIG_FILE"
@@ -186,6 +187,8 @@ else
 fi
 yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$GF_SEC_GROUP"'"]' "$CONFIG_FILE"
 
+yq -i '. *d load("pcluster-grafana.yaml")' "$CONFIG_FILE"  # TODO: causes problems with the already provided head node's OnNodeConfigured lists
+
 # Get certificate ARN and reate IAM policy for grafana to access the certificate
 CERT_ARN="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?contains(SubjectAlternativeNameSummaries, '$DOMAIN_NAME') || DomainName == '$DOMAIN_NAME'].CertificateArn" --output text)"
 IAM_ARN="$(aws iam create-policy \
@@ -198,7 +201,11 @@ IAM_ARN="$(aws iam create-policy \
         ]
     }' \
     --description "This policy grants access to retrieve the ACM certificate for the HPC cluster" \
-    --query "Policy.Arn" --output text)"
+    --query "Policy.Arn" --output text 2>/dev/null)"
+if [ -z "$IAM_ARN" ]; then
+    # Already exists grab to existing ARN
+    IAM_ARN="$(aws iam list-policies --query "Policies[?contains(PolicyName, 'hpc-pcluster-cert')].Arn" --no-paginate --output text)"
+fi
 yq -i '.HeadNode.Iam.AdditionalIamPolicies += [{"Policy":"'"$IAM_ARN"'"}]' "$CONFIG_FILE"
 
 # On the server:
@@ -206,33 +213,27 @@ yq -i '.HeadNode.Iam.AdditionalIamPolicies += [{"Policy":"'"$IAM_ARN"'"}]' "$CON
 #     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "Certificate" --output text >> ?/certificate.crt
 #     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "CertificateChain" --output text >> ?/certificate-chain.crt
 
-yq -i '. *d load("pcluster-grafana.yaml")' "$CONFIG_FILE"
-
 
 ##### Create the cluster #####
-#pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
-pcluster create-cluster --cluster-name hpc-cluster-test --cluster-configuration "$CONFIG_FILE"
-# pcluster describe-cluster --cluster-name hpc-cluster-test
-# pcluster ssh --region us-east-1 --cluster-name hpc-cluster-test -i hpc-pcluster.pem
-# pcluster update-cluster --cluster-name hpc-cluster-test --cluster-configuration "$CONFIG_FILE"
-# pcluster delete-cluster --cluster-name hpc-cluster-test
+pcluster create-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
+echo
+echo "Cluster creation started. Visit CloudFormation console to monitor progress."
+
+# Other commands:
+# echo pcluster ssh --region us-east-1 --cluster-name hpc-cluster -i hpc-pcluster.pem
+# pcluster update-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
+# pcluster delete-cluster --cluster-name hpc-cluster
 
 # Notes:
 #   About 3:45 minutes to boot an instance (without grafana)
 
 # TODO:
-#   *Set host keys to be persistent
-#   *rocky8 image
-#   Add grafana - working on
-#     can install manually but has lots of problems:
-#       - should auto-install on config -> should work with more recent OS and admin user
-#       - self-signed cert and cert doesn't use domain name -> working on (will use AWS ACM)
-#       - want a different landing page -> edit https://github.com/aws-samples/aws-parallelcluster-monitoring/blob/main/www/index.html
-#       - should be able to view without logging in
-#       - customize the dashboards
+#   grafana - working on, remaining:
+#     - self-signed cert and cert doesn't use domain name -> working on (will use AWS ACM)
+#     - customize the dashboards
 #   job numbering after rebuild
 #
 # QUESTIONS/CONSIDERATIONS:
-#   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after grafana though?]
+#   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after rocky8/grafana though?]
 #   Set ComputeResources.MinCount=1 to make sure there is always 1 node available?
 #   Do all tools work? (MPI, etc)
