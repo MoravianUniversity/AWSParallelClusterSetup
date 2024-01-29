@@ -10,7 +10,6 @@
 # - Register an elastic IP with a hpc-pcluster=true tag
 # - Register domain in Route 53
 # - Set that domain's DNS to point to the elastic IP
-# - Create and validate a certificate for that domain in Certificate Manager
 # - Add a CSV to S3 for the user keys (first column is username, second column is public key)
 # - Create a tarball with host private and public host keys and upload to S3:
 #       mkdir -p host-keys
@@ -68,10 +67,9 @@ fi
 #    However, no pre-built images of Rocky 8 are available, so we have to build our own
 #  Head Node: t3a.medium - 2 vCPU, 4 GB RAM, burtsable, 0.0376 $/hr
 #    Uses AMD EPYC 7000 series processor similar to Expanse and Bridges-2
-#  Compute Node: c5a.2xlarge - 8 vCPU, 16 GB RAM, 0.308 $/hr (spot price 0.1539 $/hr)
+#  Compute Node: c5ad.2xlarge - 8 vCPU, 16 GB RAM, 300 GB NVMe SSD, 0.344 $/hr (spot price 0.1634 $/hr)
 #    Uses AMD EPYC 7002 series processor exaclty like Expanse and Bridges-2
 #    NOTE: This is not EFA compatible so it will be slow for MPI (but all of the EFA compatible instances are WAY more expensive: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/efa.html#efa-instance-types)
-#    TODO: A c5ad.2xlarge node costs a bit more (~2c/hr) but has a 300 GB NVMe SSD for ephemeral storage
 #  The "2" option at the end causes us to make all machines public (instead of the 1/default option which makes compute nodes private)
 #    Would like the compute fleet to be in private subnet, but that would cost $150+ for the semester
 if ! [ -e "$CONFIG_FILE" ]; then
@@ -85,7 +83,7 @@ if ! [ -e "$CONFIG_FILE" ]; then
     # 1
     # compute
     # 1
-    # c5a.2xlarge
+    # c5ad.2xlarge
     # 24
     # y
     # us-east-1a
@@ -186,32 +184,7 @@ else
     GF_SEC_GROUP="$(aws ec2 describe-security-groups --filters "Name=group-name,Values=$GRAFANA_SG_NAME" "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[0].GroupId" --output text)"
 fi
 yq -i '.HeadNode.Networking.AdditionalSecurityGroups += ["'"$GF_SEC_GROUP"'"]' "$CONFIG_FILE"
-
-yq -i '. *d load("pcluster-grafana.yaml")' "$CONFIG_FILE"  # TODO: causes problems with the already provided head node's OnNodeConfigured lists
-
-# Get certificate ARN and reate IAM policy for grafana to access the certificate
-CERT_ARN="$(aws acm list-certificates --certificate-statuses ISSUED --query "CertificateSummaryList[?contains(SubjectAlternativeNameSummaries, '$DOMAIN_NAME') || DomainName == '$DOMAIN_NAME'].CertificateArn" --output text)"
-IAM_ARN="$(aws iam create-policy \
-    --policy-name "hpc-pcluster-cert" \
-    --policy-document '{
-        "Version": "2012-10-17",
-        "Statement": [
-            {"Sid": "GetCert", "Effect": "Allow", "Action": "acm:GetCertificate", "Resource": "'"$CERT_ARN"'"},
-            {"Sid": "ListCerts", "Effect": "Allow", "Action": "acm:ListCertificates", "Resource": "*"}
-        ]
-    }' \
-    --description "This policy grants access to retrieve the ACM certificate for the HPC cluster" \
-    --query "Policy.Arn" --output text 2>/dev/null)"
-if [ -z "$IAM_ARN" ]; then
-    # Already exists grab to existing ARN
-    IAM_ARN="$(aws iam list-policies --query "Policies[?contains(PolicyName, 'hpc-pcluster-cert')].Arn" --no-paginate --output text)"
-fi
-yq -i '.HeadNode.Iam.AdditionalIamPolicies += [{"Policy":"'"$IAM_ARN"'"}]' "$CONFIG_FILE"
-
-# On the server:
-#     CERT_ARN="$(aws acm list-certificates --region "$cfn_region" --query "CertificateSummaryList[0].CertificateArn" --output text)"
-#     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "Certificate" --output text >> ?/certificate.crt
-#     aws acm get-certificate --certificate-arn "$CERT_ARN" --region us-east-1 --query "CertificateChain" --output text >> ?/certificate-chain.crt
+yq -i '.Tags += [{"Key":"Grafana","Value":"true"}]' "$CONFIG_FILE"
 
 
 ##### Create the cluster #####
@@ -229,11 +202,11 @@ echo "Cluster creation started. Visit CloudFormation console to monitor progress
 
 # TODO:
 #   grafana - working on, remaining:
-#     - self-signed cert and cert doesn't use domain name -> working on (will use AWS ACM)
+#     - compute node metrics
 #     - customize the dashboards
 #   job numbering after rebuild
 #
 # QUESTIONS/CONSIDERATIONS:
-#   Get real memory amount -> 15698 for CentOS 7  (default is 15564.8) [after rocky8/grafana though?]
+#   Get real memory amount -> 15574 for rocky/grafana  (default is 15564.8)
 #   Set ComputeResources.MinCount=1 to make sure there is always 1 node available?
 #   Do all tools work? (MPI, etc)

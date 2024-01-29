@@ -8,14 +8,17 @@
 # Source the AWS ParallelCluster profile
 . /etc/parallelcluster/cfnconfig
 
-# Set the hostname if provided in argument 1
+##### General setup #####
+dnf install nano
+
+##### Set the hostname if provided in argument 1 #####
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     echo "Setting hostname to '$1'"
     hostnamectl set-hostname "$1"
     echo "127.0.0.1 $1" >>/etc/hosts
 fi
 
-# Set restrictive default umask
+##### Set restrictive default umask #####
 mkdir -p -m 0755 /etc/profile.d
 cat >/etc/profile.d/set-umask.sh <<EOF
 # Set restrictive default umask
@@ -23,11 +26,11 @@ umask 077
 EOF
 cp /etc/profile.d/set-umask.sh /etc/profile.d/set-umask.csh
 
-# Set up user.txt file
+##### Set up user.txt file #####
 touch /opt/parallelcluster/shared/users.txt
 chmod 0600 /opt/parallelcluster/shared/users.txt
 
-# Set up additional SSH users if provided in argument 2
+##### Set up additional SSH users if provided in argument 2 #####
 if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
     # Create a script for this so it can be used again at a later time
     SCRIPT_FILE="/root/create-users.sh"
@@ -110,7 +113,7 @@ EOF
     "$SCRIPT_FILE"
 fi
 
-# Set up host keys if provided in argument 3
+##### Set up host keys if provided in argument 3 #####
 if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
     echo "Adding host keys from $3"
     TARBALL="/tmp/ssh-host-keys.tar.gz"
@@ -126,5 +129,179 @@ if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
     chmod 0644 /etc/ssh/ssh_host_*_key.pub
     systemctl restart sshd
 fi
+
+
+##### Grafana Setup #####
+ORG_NAME="Moravian University"
+DOMAIN="mucluster.com"
+REGION="us-east-1"
+EMAIL="bushj@moravian.edu"
+
+dnf install -y nginx grafana certbot python3-certbot-nginx
+dnf install -y prometheus2 node_exporter
+
+# Update Grafana Settings
+# TODO: doesn't do just one replacement but many
+sed -i -E "/[auth.anonymous]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = true/" /etc/grafana/grafana.ini  # enable anonymous access
+sed -i -E "/[auth.anonymous]/,/org_name/  s/;?org_name\s*=\s*.+/org_name = $ORG_NAME/" /etc/grafana/grafana.ini
+sed -i -E "/[server]/,/domain/  s/;?domain\s*=\s*.+/domain = $DOMAIN/" /etc/grafana/grafana.ini
+sed -i -E "/[security]/,/admin_password/  s/;?admin_password\s*=\s*.+/admin_password = Grafana4PC/" /etc/grafana/grafana.ini # TODO
+#sed -i -E "/[alerting]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = false/" /etc/grafana/grafana.ini
+
+# Generate SSL Certificate
+certbot -n --nginx --agree-tos -m "$EMAIL" -d "$DOMAIN"
+
+# Update prometheus config to allow nginx proxy
+sed -i -E "s~^(PROMETHEUS_OPTS=([\"'])[^']*)\2\s*$~\1 --web.external-url /prometheus/ --web.route-prefix /\2~" /etc/default/prometheus
+
+# Create Grafana data source config
+cat >/etc/grafana/provisioning/datasources/datasources.yml <<EOF
+apiVersion: 1
+datasources:
+  - name: prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 5s
+  - name: cloudwatch
+    type: cloudwatch
+    editable: true
+    jsonData:
+      authType: default
+      defaultRegion: $REGION
+EOF
+chown root:grafana /etc/grafana/provisioning/datasources/datasources.yml
+chmod 640 /etc/grafana/provisioning/datasources/datasources.yml
+
+# Create Grafana nginx proxy config
+cat >/etc/nginx/conf.d/grafana.conf <<EOF
+map \$http_upgrade \$connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
+upstream grafana {
+  server localhost:3000;
+}
+
+#server {
+#  listen 80 default_server;
+#  listen [::]:80 default_server;
+#  server_name _;
+#  return 301 https://\$host\$request_uri;
+#}
+
+# TODO: how to combine with the CertBot added stuff?
+server {
+  listen 443 ssl;
+  ssl_certificate /etc/letsencrypt/live/mucluster.com/fullchain.pem; # managed by Certbot
+  ssl_certificate_key /etc/letsencrypt/live/mucluster.com/privkey.pem; # managed by Certbot
+  include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+  server_name $DOMAIN;
+  server_tokens off;
+
+  root /usr/share/nginx/html;
+  index index.html index.htm;
+
+  # Expose internal services for testing
+  location ^~ /prometheus/ {
+    proxy_pass http://localhost:9090/;
+    proxy_set_header Host \$http_host;
+  }
+
+  # Proxy Grafana requests.
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_pass http://grafana;
+  }
+
+  # Proxy Grafana Live WebSocket connections.
+  location /api/live/ {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection \$connection_upgrade;
+    proxy_set_header Host \$http_host;
+    proxy_pass http://grafana;
+  }
+}
+EOF
+
+# slurm exporter
+GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1
+chmod 755 /usr/local/bin/prometheus-slurm-exporter
+cat >/etc/systemd/system/prometheus-slurm-exporter.service <<EOF
+[Unit]
+Description=SLURM Exporter for Prometheus
+After=network.target
+
+[Service]
+EnvironmentFile=-/etc/default/slurm-exporter
+User=prometheus
+ExecStart=/usr/local/bin/prometheus-slurm-exporter -slurm.cli-fallback -slurm.poll-limit 5
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat >/etc/default/slurm-exporter <<EOF
+PATH=/opt/slurm/bin:$PATH
+EOF
+
+# prometheus config
+# TODO: prometheus user cannot access AWS credentials, needs to be switched to root?
+cat >/etc/prometheus/prometheus.yml <<EOF
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  scrape_timeout: 15s # The default is 10s.
+
+scrape_configs:
+  - job_name: "prometheus"
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: "slurm"
+    scrape_interval: 10s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["localhost:9092"]
+  #- job_name: "node_exporter"
+  #  scrape_interval: 5s
+  #  static_configs:
+  #    - targets: ['localhost:9100']
+  - job_name: 'ec2_instances'
+    scrape_interval: 5s
+    ec2_sd_configs:
+      - port: 9100
+        region: us-east-1
+        refresh_interval: 10s
+
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance_name
+      - source_labels: [__meta_ec2_tag_Application]
+        target_label: instance_grafana
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_availability_zone]
+        target_label: instance_az
+      - source_labels: [__meta_ec2_instance_state]
+        target_label: instance_state
+      - source_labels: [__meta_ec2_instance_type]
+        target_label: instance_type
+      - source_labels: [__meta_ec2_vpc_id]
+        target_label: instance_vpc
+EOF
+
+
+systemctl enable --now prometheus node_exporter prometheus-slurm-exporter
+systemctl enable --now nginx grafana-server
+
 
 exit 0
