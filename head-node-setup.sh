@@ -4,6 +4,9 @@
 # other cluster/Slurm setup. It initializes the following:
 #  - setting the hostname
 #  - setting up additional SSH users
+#  - setting up host keys
+#  - setting up Grafana
+#  - setting up Prometheus and metric exporting tools
 
 # Source the AWS ParallelCluster profile
 . /etc/parallelcluster/cfnconfig
@@ -188,58 +191,42 @@ chmod 640 /etc/grafana/provisioning/datasources/datasources.yml
 # TODO: set default dashboard? - both of these can be set in settings for admin user later, but would be nice to have it set up already
 
 # Create Grafana nginx proxy config
-cat >/etc/nginx/conf.d/grafana.conf <<EOF
-map \$http_upgrade \$connection_upgrade {
+cat >/etc/nginx/conf.d/grafana.conf <<'EOF'
+map $http_upgrade $connection_upgrade {
   default upgrade;
   '' close;
 }
-
 upstream grafana {
   server localhost:3000;
 }
+EOF
+cat >/etc/nginx/default.d/grafana.conf <<'EOF'
+server_tokens off;
+index index.html index.htm;
 
-#server {
-#  listen 80 default_server;
-#  listen [::]:80 default_server;
-#  server_name _;
-#  return 301 https://\$host\$request_uri;
-#}
+# Expose internal services for testing
+location ^~ /prometheus/ {
+  proxy_pass http://localhost:9090/;
+  proxy_set_header Host $http_host;
+}
 
-# TODO: how to combine with the CertBot added stuff?
-server {
-  listen 443 ssl;
-  ssl_certificate /etc/letsencrypt/live/mucluster.com/fullchain.pem; # managed by Certbot
-  ssl_certificate_key /etc/letsencrypt/live/mucluster.com/privkey.pem; # managed by Certbot
-  include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
-  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
-  server_name $DOMAIN;
-  server_tokens off;
+# Proxy Grafana requests.
+location / {
+  proxy_set_header Host $http_host;
+  proxy_pass http://grafana;
+}
 
-  root /usr/share/nginx/html;
-  index index.html index.htm;
-
-  # Expose internal services for testing
-  location ^~ /prometheus/ {
-    proxy_pass http://localhost:9090/;
-    proxy_set_header Host \$http_host;
-  }
-
-  # Proxy Grafana requests.
-  location / {
-    proxy_set_header Host \$http_host;
-    proxy_pass http://grafana;
-  }
-
-  # Proxy Grafana Live WebSocket connections.
-  location /api/live/ {
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection \$connection_upgrade;
-    proxy_set_header Host \$http_host;
-    proxy_pass http://grafana;
-  }
+# Proxy Grafana Live WebSocket connections.
+location /api/live/ {
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;
+  proxy_set_header Host $http_host;
+  proxy_pass http://grafana;
 }
 EOF
+sed -i -E 's~^\s+location\s*/\s*\{~#\0~' /etc/nginx/nginx.conf  # -> comment out default nginx location /
+sed -i -E '/location\s*\/\s*\{/{n;s~.*~#\0~}' /etc/nginx/nginx.conf
 
 # SLURM Exporter
 GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1

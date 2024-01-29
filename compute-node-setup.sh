@@ -3,6 +3,7 @@
 # This script runs on the compute node of the cluster upon first boot before
 # any other cluster/Slurm setup. It initializes the following:
 #  - setting up additional SSH users
+#  - setting up node exporter
 
 
 ##### General setup #####
