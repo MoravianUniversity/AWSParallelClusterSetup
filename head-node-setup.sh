@@ -9,7 +9,7 @@
 . /etc/parallelcluster/cfnconfig
 
 ##### General setup #####
-dnf install -y nano
+dnf install -y nano htop
 
 ##### Set the hostname if provided in argument 1 #####
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
@@ -137,8 +137,21 @@ DOMAIN="mucluster.com"
 REGION="us-east-1"
 EMAIL="bushj@moravian.edu"
 
-dnf install -y nginx grafana certbot python3-certbot-nginx
-dnf install -y prometheus2 node_exporter
+# Install packages
+cat >/etc/yum.repos.d/prometheus.repo <<'EOF'
+[prometheus]
+name=prometheus
+baseurl=https://packagecloud.io/prometheus-rpm/release/el/$releasever/$basearch
+repo_gpgcheck=1
+enabled=1
+gpgkey=https://packagecloud.io/prometheus-rpm/release/gpgkey
+       https://raw.githubusercontent.com/lest/prometheus-rpm/master/RPM-GPG-KEY-prometheus-rpm
+gpgcheck=1
+metadata_expire=300
+EOF
+dnf install -y golang-bin \
+    nginx grafana certbot python3-certbot-nginx \
+    prometheus2 node_exporter
 
 # Update Grafana Settings
 sed -i -E "/\[auth\.anonymous\]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = true/" /etc/grafana/grafana.ini  # enable anonymous access
@@ -148,9 +161,6 @@ sed -i -E "/\[security\]/,/admin_password/  s/;?admin_password\s*=\s*.+/admin_pa
 
 # Generate SSL Certificate
 certbot -n --nginx --agree-tos -m "$EMAIL" -d "$DOMAIN"
-
-# Update prometheus config to allow nginx proxy
-sed -i -E "s~^(PROMETHEUS_OPTS=([\"'])[^']*)\2\s*$~\1 --web.external-url /prometheus/ --web.route-prefix /\2~" /etc/default/prometheus
 
 # Create Grafana data source config
 cat >/etc/grafana/provisioning/datasources/datasources.yml <<EOF
@@ -254,8 +264,15 @@ cat >/etc/default/slurm-exporter <<EOF
 PATH=/opt/slurm/bin:$PATH
 EOF
 
+# Update prometheus config to allow nginx proxy
+sed -i -E "s~^(PROMETHEUS_OPTS=([\"'])[^']*)\2\s*$~\1 --web.external-url /prometheus/ --web.route-prefix /\2~" /etc/default/prometheus
+
+# Prometheus user cannot access AWS credentials, needs to be switched to root (default)
+# TODO: any way to avoid this? https://serverfault.com/questions/1152450/aws-automatic-iam-roles-for-service-users
+sed -i -E "s/^User=/#\0/" /usr/lib/systemd/system/prometheus.service
+
 # Prometheus Config
-# TODO: prometheus user cannot access AWS credentials, needs to be switched to root?
+mkdir -p /etc/prometheus
 cat >/etc/prometheus/prometheus.yml <<EOF
 global:
   scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
