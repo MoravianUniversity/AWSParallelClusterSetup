@@ -6,7 +6,7 @@
 
 
 ##### General setup #####
-dnf install -y nano
+dnf install -y nano htop
 
 
 ##### Create users #####
@@ -19,7 +19,6 @@ done < "/opt/parallelcluster/shared/users.txt"
 
 ##### Set up node exporter #####
 echo "Setting up node exporter..."
-
 cat >/etc/yum.repos.d/prometheus.repo <<'EOF'
 [prometheus]
 name=prometheus
@@ -32,39 +31,33 @@ gpgcheck=1
 metadata_expire=300
 EOF
 dnf install -y node_exporter
-
-# Not sure if this is needed: (adds --collector.processes to ARGS for the node exporter service)
-# sed -i -E "s/^(NODE_EXPORTER_OPTS=([\"'])[^']*)\2\s*$/\1 --collector.processes\2/" /etc/default/node_exporter
-
 systemctl enable --now node_exporter
 
 
 ##### Termination Detection #####
-(
-cd /
-TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-if [ "$?" -ne 0 ]; then
-    echo "Error running 'curl' command" >&2
-    exit 1
-fi
-
-# Periodically check for termination
-while sleep 10; do
-    HTTP_CODE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s -w %{http_code} -o /dev/null http://169.254.169.254/latest/meta-data/spot/instance-action)
-
-    if [[ "$HTTP_CODE" -eq 401 ]] ; then
-        # Refreshing Authentication Token
-        TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 120")
-        continue
-    elif [[ "$HTTP_CODE" -ne 200 ]] ; then
-        # If the return code is not 200, the instance is not going to be interrupted
-        continue
-    fi
-
-    # Start a graceful shutdown of the host
-    sleep 120
-    shutdown now
-done
-) &
+# This hangs... but elsewhere they say to do this on config (this script is run on setup though)
+# (
+# cd /
+# TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+# if [ "$?" -ne 0 ]; then
+#     echo "Error running 'curl' command" >&2
+#     exit 1
+# fi
+# # Periodically check for termination
+# while sleep 10; do
+#     HTTP_CODE=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s -w %{http_code} -o /dev/null http://169.254.169.254/latest/meta-data/spot/instance-action)
+#     if [[ "$HTTP_CODE" -eq 401 ]] ; then
+#         # Refreshing Authentication Token
+#         TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 120")
+#         continue
+#     elif [[ "$HTTP_CODE" -ne 200 ]] ; then
+#         # If the return code is not 200, the instance is not going to be interrupted
+#         continue
+#     fi
+#     # Start a graceful shutdown of the host
+#     sleep 120
+#     shutdown now
+# done
+# ) &
 
 exit 0
