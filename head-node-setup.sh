@@ -141,12 +141,10 @@ dnf install -y nginx grafana certbot python3-certbot-nginx
 dnf install -y prometheus2 node_exporter
 
 # Update Grafana Settings
-# TODO: doesn't do just one replacement but many
-sed -i -E "/[auth.anonymous]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = true/" /etc/grafana/grafana.ini  # enable anonymous access
-sed -i -E "/[auth.anonymous]/,/org_name/  s/;?org_name\s*=\s*.+/org_name = $ORG_NAME/" /etc/grafana/grafana.ini
-sed -i -E "/[server]/,/domain/  s/;?domain\s*=\s*.+/domain = $DOMAIN/" /etc/grafana/grafana.ini
-sed -i -E "/[security]/,/admin_password/  s/;?admin_password\s*=\s*.+/admin_password = Grafana4PC/" /etc/grafana/grafana.ini # TODO
-#sed -i -E "/[alerting]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = false/" /etc/grafana/grafana.ini
+sed -i -E "/\[auth\.anonymous\]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = true/" /etc/grafana/grafana.ini  # enable anonymous access
+sed -i -E "/\[auth\.anonymous\]/,/org_name/  s/;?org_name\s*=\s*.+/org_name = $ORG_NAME/" /etc/grafana/grafana.ini
+sed -i -E "/\[server\]/,/domain/  s/;?domain\s*=\s*.+/domain = $DOMAIN/" /etc/grafana/grafana.ini
+sed -i -E "/\[security\]/,/admin_password/  s/;?admin_password\s*=\s*.+/admin_password = Grafana4PC/" /etc/grafana/grafana.ini # TODO
 
 # Generate SSL Certificate
 certbot -n --nginx --agree-tos -m "$EMAIL" -d "$DOMAIN"
@@ -175,6 +173,9 @@ datasources:
 EOF
 chown root:grafana /etc/grafana/provisioning/datasources/datasources.yml
 chmod 640 /etc/grafana/provisioning/datasources/datasources.yml
+
+# TODO: update organization name? or don't change anon org name?
+# TODO: set default dashboard? - both of these can be set in settings for admin user later, but would be nice to have it set up already
 
 # Create Grafana nginx proxy config
 cat >/etc/nginx/conf.d/grafana.conf <<EOF
@@ -230,7 +231,7 @@ server {
 }
 EOF
 
-# slurm exporter
+# SLURM Exporter
 GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1
 chmod 755 /usr/local/bin/prometheus-slurm-exporter
 cat >/etc/systemd/system/prometheus-slurm-exporter.service <<EOF
@@ -242,7 +243,7 @@ After=network.target
 EnvironmentFile=-/etc/default/slurm-exporter
 User=prometheus
 ExecStart=/usr/local/bin/prometheus-slurm-exporter -slurm.cli-fallback -slurm.poll-limit 5
-ExecReload=/bin/kill -HUP $MAINPID
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5s
 
@@ -253,7 +254,7 @@ cat >/etc/default/slurm-exporter <<EOF
 PATH=/opt/slurm/bin:$PATH
 EOF
 
-# prometheus config
+# Prometheus Config
 # TODO: prometheus user cannot access AWS credentials, needs to be switched to root?
 cat >/etc/prometheus/prometheus.yml <<EOF
 global:
@@ -279,7 +280,7 @@ scrape_configs:
     scrape_interval: 5s
     ec2_sd_configs:
       - port: 9100
-        region: us-east-1
+        region: $REGION
         refresh_interval: 10s
 
     relabel_configs:
@@ -299,7 +300,7 @@ scrape_configs:
         target_label: instance_vpc
 EOF
 
-
+# Start Services
 systemctl enable --now prometheus node_exporter prometheus-slurm-exporter
 systemctl enable --now nginx grafana-server
 
