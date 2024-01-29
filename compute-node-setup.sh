@@ -6,7 +6,7 @@
 
 
 ##### General setup #####
-dnf install nano
+dnf install -y nano
 
 
 ##### Create users #####

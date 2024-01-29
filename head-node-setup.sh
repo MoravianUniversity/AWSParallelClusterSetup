@@ -9,7 +9,7 @@
 . /etc/parallelcluster/cfnconfig
 
 ##### General setup #####
-dnf install nano
+dnf install -y nano
 
 ##### Set the hostname if provided in argument 1 #####
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
