@@ -14,6 +14,39 @@
 ##### General setup #####
 dnf install -y nano htop
 
+# Prevent users from writing to each other's terminals
+sudo chmod -007 /usr/bin/wall || true
+sudo chmod -007 /usr/bin/write || true
+cat >/etc/profile.d/protect-tty.sh <<'EOF'
+test -O "$(/usr/bin/tty)" && /usr/bin/mesg n
+EOF
+sudo chmod 644 /etc/profile.d/protect-tty.sh
+
+# Allow users to run chsh without a password
+cat >/etc/pam.d/chsh <<EOF
+auth       sufficient   pam_shells.so
+EOF
+
+# A script that can download from either a URL or an S3 bucket
+DOWNLOAD_SCRIPT_FILE='/root/download-file.sh'
+cat >"$DOWNLOAD_SCRIPT_FILE" <<EOF
+export AWS_DEFAULT_REGION="$cfn_region"
+EOF
+cat >>"$DOWNLOAD_SCRIPT_FILE" <<'EOF'
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 <URI> <output file>"
+    exit 1
+fi
+echo "Downloading $1..."
+if [[ "$1" =~ ^s3 ]]; then
+    aws s3 cp "$1" "$2" --no-progress || exit 1
+else
+    wget -nv -O "$2" "$1" || exit 1
+fi
+EOF
+chmod 0755 "$DOWNLOAD_SCRIPT_FILE"
+
+
 ##### Set the hostname if provided in argument 1 #####
 if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     echo "Setting hostname to '$1'"
@@ -38,7 +71,6 @@ if [[ "$2" =~ ^(s3|http|https)://.* ]]; then
     # Create a script for this so it can be used again at a later time
     SCRIPT_FILE="/root/create-users.sh"
     cat >"$SCRIPT_FILE" <<EOF
-export AWS_DEFAULT_REGION="$cfn_region"
 DEFAULT_URI="$2"
 
 EOF
@@ -56,14 +88,9 @@ USERS_GID="$(getent group users | cut -d : -f 3)"
 # Download the CSV file
 [ -n "$1" ] && URI="$1" || URI="$DEFAULT_URI"
 echo "Setting up SSH users from $URI"
-CSV_FILE="/tmp/users.csv"
-if [[ "$URI" =~ ^s3 ]]; then
-    aws s3 cp "$URI" "$CSV_FILE" --no-progress || exit 1
-else
-    wget -nv -O "$CSV_FILE" "$URI" || exit 1
-fi
+/root/download-file.sh "$URI" /tmp/users.csv
 
-# Go through each line of the CSV file
+# Go through each line of the CSV file  # TODO: this skips the last line of the file apparently (or at least sometimes)
 while IFS=, read -r NEW_USER KEY; do
     # Remove leading and trailing whitespace and quotes
     NEW_USER="$(trim_csv "$NEW_USER")"
@@ -119,13 +146,8 @@ fi
 ##### Set up host keys if provided in argument 3 #####
 if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
     echo "Adding host keys from $3"
-    TARBALL="/tmp/ssh-host-keys.tar.gz"
-    if [[ "$3" =~ ^s3 ]]; then
-        aws s3 cp "$3" "$TARBALL" --no-progress || exit 1
-    else
-        wget -nv -O "$TARBALL" "$3" || exit 1
-    fi
-    tar --overwrite -C /etc/ssh -xzf "$TARBALL"
+    /root/download-file.sh "$3" "/tmp/ssh-host-keys.tar.gz"
+    tar --overwrite -C /etc/ssh -xzf "/tmp/ssh-host-keys.tar.gz"
     chown root:ssh_keys /etc/ssh/ssh_host_*_key
     chown root:root /etc/ssh/ssh_host_*_key.pub
     chmod 0640 /etc/ssh/ssh_host_*_key
@@ -134,10 +156,8 @@ if [[ "$3" =~ ^(s3|http|https)://.* ]]; then
 fi
 
 
-##### Grafana Setup #####
-ORG_NAME="Moravian University"
+##### Grafana/Prometheus Setup #####
 DOMAIN="mucluster.com"
-REGION="us-east-1"
 EMAIL="bushj@moravian.edu"
 
 # Install packages
@@ -156,39 +176,23 @@ dnf install -y golang-bin \
     nginx grafana certbot python3-certbot-nginx \
     prometheus2 node_exporter
 
-# Update Grafana Settings
-sed -i -E "/\[auth\.anonymous\]/,/enabled/  s/;?enabled\s*=\s*.+/enabled = true/" /etc/grafana/grafana.ini  # enable anonymous access
-sed -i -E "/\[auth\.anonymous\]/,/org_name/  s/;?org_name\s*=\s*.+/org_name = $ORG_NAME/" /etc/grafana/grafana.ini
-sed -i -E "/\[server\]/,/domain/  s/;?domain\s*=\s*.+/domain = $DOMAIN/" /etc/grafana/grafana.ini
-sed -i -E "/\[security\]/,/admin_password/  s/;?admin_password\s*=\s*.+/admin_password = Grafana4PC/" /etc/grafana/grafana.ini # TODO
-
-# Generate SSL Certificate
-certbot -n --nginx --agree-tos -m "$EMAIL" -d "$DOMAIN"
-
-# Create Grafana data source config
-cat >/etc/grafana/provisioning/datasources/datasources.yml <<EOF
-apiVersion: 1
-datasources:
-  - name: prometheus
-    type: prometheus
-    access: proxy
-    url: http://localhost:9090
-    isDefault: true
-    editable: true
-    jsonData:
-      timeInterval: 5s
-  - name: cloudwatch
-    type: cloudwatch
-    editable: true
-    jsonData:
-      authType: default
-      defaultRegion: $REGION
-EOF
-chown root:grafana /etc/grafana/provisioning/datasources/datasources.yml
-chmod 640 /etc/grafana/provisioning/datasources/datasources.yml
+# Load Grafana settings from 4th argument if provided
+# Created from tar -czf ../grafana.tar.gz * from inside the grafana directory
+if [[ "$4" =~ ^(s3|http|https)://.* ]]; then
+  /root/download-file.sh "$4" /tmp/grafana.tar.gz
+  tar -C /etc/grafana -xzf /tmp/grafana.tar.gz
+  chown -R root:grafana /etc/grafana
+  find /etc/grafana -type d -exec chmod 755 {} \;
+  find /etc/grafana -type f -exec chmod 644 {} \;
+fi
 
 # TODO: update organization name? or don't change anon org name?
 # TODO: set default dashboard? - both of these can be set in settings for admin user later, but would be nice to have it set up already
+# TODO: default_home_dashboard_path, home_page?
+
+
+# Generate SSL Certificate
+certbot -n --nginx --agree-tos -m "$EMAIL" -d "$DOMAIN"
 
 # Create Grafana nginx proxy config
 cat >/etc/nginx/conf.d/grafana.conf <<'EOF'
@@ -229,7 +233,9 @@ sed -i -E 's~^\s+location\s*/\s*\{~#\0~' /etc/nginx/nginx.conf  # -> comment out
 sed -i -E '/location\s*\/\s*\{/{n;s~.*~#\0~}' /etc/nginx/nginx.conf
 
 # SLURM Exporter
+# TODO: this isn't installing, this version also has a bug?
 GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1
+
 chmod 755 /usr/local/bin/prometheus-slurm-exporter
 cat >/etc/systemd/system/prometheus-slurm-exporter.service <<EOF
 [Unit]
@@ -276,15 +282,11 @@ scrape_configs:
     scrape_timeout: 10s
     static_configs:
       - targets: ["localhost:9092"]
-  #- job_name: "node_exporter"
-  #  scrape_interval: 5s
-  #  static_configs:
-  #    - targets: ['localhost:9100']
   - job_name: 'ec2_instances'
     scrape_interval: 5s
     ec2_sd_configs:
       - port: 9100
-        region: $REGION
+        region: $cfn_region
         refresh_interval: 10s
 
     relabel_configs:
@@ -307,6 +309,7 @@ EOF
 # Start Services
 systemctl enable --now prometheus node_exporter prometheus-slurm-exporter
 systemctl enable --now nginx grafana-server
-
+# nginx fails to start on first boot, this fixes it
+killall nginx; systemctl start nginx
 
 exit 0

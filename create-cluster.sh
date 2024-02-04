@@ -197,16 +197,9 @@ echo "Cluster creation started. Visit CloudFormation console to monitor progress
 # pcluster update-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
 # pcluster delete-cluster --cluster-name hpc-cluster
 
-# Notes:
-#   About 3:45 minutes to boot an instance (without grafana)
+# Note: about 4 minutes to boot an instance, good to keep one instance always running
 
 # TODO:
-#   grafana - working on, remaining:
-#     - compute node metrics
-#     - customize the dashboards
+#   grafana dashboards
 #   job numbering after rebuild
-#
-# QUESTIONS/CONSIDERATIONS:
-#   Get real memory amount -> 15574 for rocky/grafana  (default is 15564.8)
-#   Set ComputeResources.MinCount=1 to make sure there is always 1 node available?
 #   Do all tools work? (MPI, etc)
