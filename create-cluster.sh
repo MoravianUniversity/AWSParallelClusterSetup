@@ -65,7 +65,7 @@ fi
 # Explanation of choices in the following:
 #  OS: rocky8 - free version of RHEL 8 (like what centos8 should be, exactly what Expanse uses)
 #    However, no pre-built images of Rocky 8 are available, so we have to build our own
-#  Head Node: t3a.medium - 2 vCPU, 4 GB RAM, burtsable, 0.0376 $/hr
+#  Head Node: t3a.large - 2 vCPU, 30% + burtsable, 8 GB RAM, 0.0752 $/hr
 #    Uses AMD EPYC 7000 series processor similar to Expanse and Bridges-2
 #  Compute Node: c5ad.2xlarge - 8 vCPU, 16 GB RAM, 300 GB NVMe SSD, 0.344 $/hr (spot price 0.1634 $/hr)
 #    Uses AMD EPYC 7002 series processor exaclty like Expanse and Bridges-2
@@ -79,7 +79,7 @@ if ! [ -e "$CONFIG_FILE" ]; then
     # hpc-pcluster
     # slurm
     # rocky8
-    # t3a.medium
+    # t3a.large
     # 1
     # compute
     # 1

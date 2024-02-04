@@ -22,7 +22,7 @@ Scheduling:
       - MpiDefault: pmi2 # default is none
       - RequeueExit: 200 # 200 is special return code for spot instance termination
   SlurmQueues:
-    - Name: compute
+    - Name: shared
       CapacityType: "SPOT"  # default is "ON_DEMAND"
       ComputeSettings:
         LocalStorage:
@@ -32,5 +32,6 @@ Scheduling:
         MaxNodes: 4
         MaxTime: "4:00:00"
       ComputeResources:
-        - SchedulableMemory: 15600  # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
+        - MinCount: 1 # always keep one around for quick usage
+          SchedulableMemory: 15500  # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
         # TODO: DisableSimultaneousMultithreading: true
