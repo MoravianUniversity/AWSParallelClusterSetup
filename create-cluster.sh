@@ -34,6 +34,7 @@ DB_CF_NAME="hpc-pcluster-slurm-db"
 DOMAIN_NAME="mucluster.com"
 USER_KEYS_S3="s3://mu-hpc-pcluster/user-keys.csv"
 HOST_KEYS_S3="s3://mu-hpc-pcluster/host-keys.tar.gz"
+GRAFANA_CONFIG_S3="s3://mu-hpc-pcluster/grafana.tar.gz"
 EBS_VOLUME_ID="vol-02c42f64eace590fa"
 GRAFANA_SG_NAME="grafana-sg"  # this just needs to be unique to this VPC
 CONFIG_FILE="pcluster-config.yaml"
@@ -146,6 +147,7 @@ function add_s3_access() {
 }
 add_s3_access "$USER_KEYS_S3"
 add_s3_access "$HOST_KEYS_S3"
+add_s3_access "$GRAFANA_CONFIG_S3"
 CN_SETUP_SCRIPT="$REPO_URL/compute-node-setup.sh"
 
 yq -i '.Scheduling.SlurmQueues[0].CustomActions.OnNodeStart.Sequence += [{"Script":"'"$CN_SETUP_SCRIPT"'"}]' "$CONFIG_FILE"

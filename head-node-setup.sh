@@ -37,7 +37,7 @@ if [ -z "$1" ] || [ -z "$2" ]; then
     echo "Usage: $0 <URI> <output file>"
     exit 1
 fi
-echo "Downloading $1..."
+echo "Downloading $1 to $2..."
 if [[ "$1" =~ ^s3 ]]; then
     aws s3 cp "$1" "$2" --no-progress || exit 1
 else
@@ -88,7 +88,8 @@ USERS_GID="$(getent group users | cut -d : -f 3)"
 # Download the CSV file
 [ -n "$1" ] && URI="$1" || URI="$DEFAULT_URI"
 echo "Setting up SSH users from $URI"
-/root/download-file.sh "$URI" /tmp/users.csv
+CSV_FILE="/tmp/users.csv"
+/root/download-file.sh "$URI" "$CSV_FILE"
 
 # Go through each line of the CSV file  # TODO: this skips the last line of the file apparently (or at least sometimes)
 while IFS=, read -r NEW_USER KEY; do
@@ -233,10 +234,10 @@ sed -i -E 's~^\s+location\s*/\s*\{~#\0~' /etc/nginx/nginx.conf  # -> comment out
 sed -i -E '/location\s*\/\s*\{/{n;s~.*~#\0~}' /etc/nginx/nginx.conf
 
 # SLURM Exporter
-# TODO: this isn't installing, this version also has a bug?
+# TODO: this isn't installing automatically, this version also has a bug?
 GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1
-
 chmod 755 /usr/local/bin/prometheus-slurm-exporter
+
 cat >/etc/systemd/system/prometheus-slurm-exporter.service <<EOF
 [Unit]
 Description=SLURM Exporter for Prometheus
