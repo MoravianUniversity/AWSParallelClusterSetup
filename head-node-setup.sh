@@ -12,7 +12,14 @@
 . /etc/parallelcluster/cfnconfig
 
 ##### General setup #####
-dnf install -y nano htop
+dnf install -y nano htop valgrind 
+dnf install -y hwloc qcachegrind gnuplot msr-tools # tools used by the textbook
+
+git clone https://github.com/RRZE-HPC/likwid.git
+cd likwid
+#edit config.mk
+make && make install
+cd ..
 
 # Prevent users from writing to each other's terminals
 sudo chmod -007 /usr/bin/wall || true
@@ -26,6 +33,17 @@ sudo chmod 644 /etc/profile.d/protect-tty.sh
 cat >/etc/pam.d/chsh <<EOF
 auth       sufficient   pam_shells.so
 EOF
+
+# Restrict memory and CPU usage
+mkdir -p /etc/systemd/system/user-.slice.d
+cat > /etc/systemd/system/user-.slice.d/50-memory-and-cpu.conf << EOF
+[Slice]
+MemoryAccounting=true
+MemoryMax=2G
+CPUAccounting=true
+CPUQuota=15%
+EOF
+systemctl daemon-reload
 
 # A script that can download from either a URL or an S3 bucket
 DOWNLOAD_SCRIPT_FILE='/root/download-file.sh'

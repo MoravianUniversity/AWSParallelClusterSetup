@@ -202,6 +202,5 @@ echo "Cluster creation started. Visit CloudFormation console to monitor progress
 # Note: about 4 minutes to boot an instance, good to keep one instance always running
 
 # TODO:
-#   grafana dashboards
 #   job numbering after rebuild
 #   Do all tools work? (MPI, etc)
