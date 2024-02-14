@@ -7,7 +7,7 @@
 
 
 ##### General setup #####
-dnf install -y nano htop valgrind
+dnf install -y nano htop valgrind gcc-toolset-13
 dnf install -y hwloc gnuplot msr-tools # tools used by the textbook
 
 

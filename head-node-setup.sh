@@ -12,7 +12,7 @@
 . /etc/parallelcluster/cfnconfig
 
 ##### General setup #####
-dnf install -y nano htop valgrind 
+dnf install -y nano htop valgrind gcc-toolset-13
 dnf install -y hwloc qcachegrind gnuplot msr-tools # tools used by the textbook
 
 git clone https://github.com/RRZE-HPC/likwid.git
@@ -109,7 +109,10 @@ echo "Setting up SSH users from $URI"
 CSV_FILE="/tmp/users.csv"
 /root/download-file.sh "$URI" "$CSV_FILE"
 
-# Go through each line of the CSV file  # TODO: this skips the last line of the file apparently (or at least sometimes)
+# Ensure file ends in a newline (otherwise the last line is skipped)
+[[ $(tail -c1 "$CSV_FILE" | wc -l) -gt 0 ]] || echo >> "$CSV_FILE"
+
+# Go through each line of the CSV file
 while IFS=, read -r NEW_USER KEY; do
     # Remove leading and trailing whitespace and quotes
     NEW_USER="$(trim_csv "$NEW_USER")"
@@ -252,8 +255,8 @@ sed -i -E 's~^\s+location\s*/\s*\{~#\0~' /etc/nginx/nginx.conf  # -> comment out
 sed -i -E '/location\s*\/\s*\{/{n;s~.*~#\0~}' /etc/nginx/nginx.conf
 
 # SLURM Exporter
-# TODO: this isn't installing automatically, this version also has a bug?
-GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.0.1
+# TODO: this isn't installing automatically?
+GOBIN=/usr/local/bin go install github.com/rivosinc/prometheus-slurm-exporter@v1.1.1
 chmod 755 /usr/local/bin/prometheus-slurm-exporter
 
 cat >/etc/systemd/system/prometheus-slurm-exporter.service <<EOF
