@@ -15,19 +15,22 @@
 dnf install -y nano htop valgrind gcc-toolset-13
 dnf install -y hwloc qcachegrind gnuplot msr-tools # tools used by the textbook
 
-git clone https://github.com/RRZE-HPC/likwid.git
-cd likwid
-#edit config.mk
-make && make install
-cd ..
+# git clone https://github.com/RRZE-HPC/likwid.git
+# cd likwid
+# #edit config.mk
+# make && make install
+# cd ..
+
+mkdir -p -m 0755 /etc/profile.d
 
 # Prevent users from writing to each other's terminals
-sudo chmod -007 /usr/bin/wall || true
-sudo chmod -007 /usr/bin/write || true
+chmod -007 /usr/bin/wall || true
+chmod -007 /usr/bin/write || true
 cat >/etc/profile.d/protect-tty.sh <<'EOF'
 test -O "$(/usr/bin/tty)" && /usr/bin/mesg n
 EOF
-sudo chmod 644 /etc/profile.d/protect-tty.sh
+chmod 644 /etc/profile.d/protect-tty.sh
+cp /etc/profile.d/protect-tty.sh /etc/profile.d/protect-tty.sh
 
 # Allow users to run chsh without a password
 cat >/etc/pam.d/chsh <<EOF
@@ -44,6 +47,22 @@ CPUAccounting=true
 CPUQuota=15%
 EOF
 systemctl daemon-reload
+
+# Set restrictive default umask
+cat >/etc/profile.d/set-umask.sh <<EOF
+# Set restrictive default umask
+umask 077
+EOF
+chmod 644 /etc/profile.d/set-umask.sh
+cp /etc/profile.d/set-umask.sh /etc/profile.d/set-umask.csh
+
+# Set gcc-13 as the default compiler
+cat >/etc/profile.d/gcc-version.sh <<EOF
+# Set gcc-13 as the default compiler
+source /opt/rh/gcc-toolset-13/enable
+EOF
+chmod 644 /etc/profile.d/gcc-version.sh
+cp /etc/profile.d/gcc-version.sh /etc/profile.d/gcc-version.csh
 
 # A script that can download from either a URL or an S3 bucket
 DOWNLOAD_SCRIPT_FILE='/root/download-file.sh'
@@ -71,14 +90,6 @@ if [[ "$1" =~ ^[a-zA-Z0-9_-]+([.][a-zA-Z0-9_-]+)+$ ]]; then
     hostnamectl set-hostname "$1"
     echo "127.0.0.1 $1" >>/etc/hosts
 fi
-
-##### Set restrictive default umask #####
-mkdir -p -m 0755 /etc/profile.d
-cat >/etc/profile.d/set-umask.sh <<EOF
-# Set restrictive default umask
-umask 077
-EOF
-cp /etc/profile.d/set-umask.sh /etc/profile.d/set-umask.csh
 
 ##### Set up user.txt file #####
 touch /opt/parallelcluster/shared/users.txt

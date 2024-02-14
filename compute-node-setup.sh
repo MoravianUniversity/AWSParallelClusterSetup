@@ -10,6 +10,38 @@
 dnf install -y nano htop valgrind gcc-toolset-13
 dnf install -y hwloc gnuplot msr-tools # tools used by the textbook
 
+mkdir -p -m 0755 /etc/profile.d
+
+# Prevent users from writing to each other's terminals
+chmod -007 /usr/bin/wall || true
+chmod -007 /usr/bin/write || true
+cat >/etc/profile.d/protect-tty.sh <<'EOF'
+test -O "$(/usr/bin/tty)" && /usr/bin/mesg n
+EOF
+chmod 644 /etc/profile.d/protect-tty.sh
+cp /etc/profile.d/protect-tty.sh /etc/profile.d/protect-tty.sh
+
+# Allow users to run chsh without a password
+cat >/etc/pam.d/chsh <<EOF
+auth       sufficient   pam_shells.so
+EOF
+
+# Set restrictive default umask
+cat >/etc/profile.d/set-umask.sh <<EOF
+# Set restrictive default umask
+umask 077
+EOF
+chmod 644 /etc/profile.d/set-umask.sh
+cp /etc/profile.d/set-umask.sh /etc/profile.d/set-umask.csh
+
+# Set gcc-13 as the default compiler
+cat >/etc/profile.d/gcc-version.sh <<EOF
+# Set gcc-13 as the default compiler
+source /opt/rh/gcc-toolset-13/enable
+EOF
+chmod 644 /etc/profile.d/gcc-version.sh
+cp /etc/profile.d/gcc-version.sh /etc/profile.d/gcc-version.csh
+
 
 ##### Create users #####
 echo "Creating users..."
