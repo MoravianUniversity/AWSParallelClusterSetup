@@ -12,7 +12,7 @@
 . /etc/parallelcluster/cfnconfig
 
 ##### General setup #####
-dnf install -y nano htop valgrind gcc-toolset-13
+dnf install -y nano htop valgrind gcc-toolset-13 numactl
 dnf install -y hwloc qcachegrind gnuplot msr-tools # tools used by the textbook
 
 # git clone https://github.com/RRZE-HPC/likwid.git
