@@ -23,7 +23,7 @@ Scheduling:
       - RequeueExit: 200 # 200 is special return code for spot instance termination
   SlurmQueues:
     - Name: shared
-      CapacityType: "SPOT"  # default is "ON_DEMAND"
+      CapacityType: "SPOT"  # default is "ONDEMAND"
       ComputeSettings:
         LocalStorage:
           EphemeralVolume:
@@ -35,3 +35,26 @@ Scheduling:
         - MinCount: 1 # always keep one around for quick usage
           SchedulableMemory: 15500  # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
         # TODO: DisableSimultaneousMultithreading: true
+    - Name: gpu-shared
+      ComputeResources:
+        - Name: g5xlarge
+          Instances:
+            - InstanceType: g5.xlarge  # 2xlarge would give 8 vCPUs and 32 GB of memory for +$0.15/hr; no difference in GPU though
+          MinCount: 0
+          MaxCount: 6
+          SchedulableMemory: 15500 # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
+      Networking:
+        SubnetIds:
+          - subnet-09886d02611b86d68
+      CapacityType: "SPOT" # default is "ONDEMAND"
+      ComputeSettings:
+        LocalStorage:
+          EphemeralVolume:
+            MountDir: /scratch
+      CustomSlurmSettings:
+        MaxNodes: 1
+        MaxTime: "2:00:00"
+      CustomActions:
+        OnNodeStart:
+          Sequence:
+            - Script: https://raw.githubusercontent.com/MoravianUniversity/AWSParallelClusterSetup/main/compute-node-setup.sh
