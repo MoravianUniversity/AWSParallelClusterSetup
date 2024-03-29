@@ -196,7 +196,13 @@ echo "Cluster creation started. Visit CloudFormation console to monitor progress
 
 # Other commands:
 # echo pcluster ssh --region us-east-1 --cluster-name hpc-cluster -i hpc-pcluster.pem
+
+# pcluster describe-cluster --cluster-name hpc-cluster
+
+# pcluster update-compute-fleet --cluster-name hpc-cluster --status STOP_REQUESTED
 # pcluster update-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
+# pcluster update-compute-fleet --cluster-name hpc-cluster --status START_REQUESTED
+
 # pcluster delete-cluster --cluster-name hpc-cluster
 
 # Note: about 5 minutes to boot an instance, good to keep one instance always running
