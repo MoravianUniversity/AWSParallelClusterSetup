@@ -199,8 +199,7 @@ echo "Cluster creation started. Visit CloudFormation console to monitor progress
 # pcluster update-cluster --cluster-name hpc-cluster --cluster-configuration "$CONFIG_FILE"
 # pcluster delete-cluster --cluster-name hpc-cluster
 
-# Note: about 4 minutes to boot an instance, good to keep one instance always running
+# Note: about 5 minutes to boot an instance, good to keep one instance always running
 
 # TODO:
 #   job numbering after rebuild
-#   Do all tools work? (MPI, etc)
