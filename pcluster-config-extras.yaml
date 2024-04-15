@@ -37,12 +37,12 @@ Scheduling:
         # TODO: DisableSimultaneousMultithreading: true
     - Name: gpu-shared
       ComputeResources:
-        - Name: g5xlarge
+        - Name: g5
           Instances:
             - InstanceType: g5.xlarge  # 2xlarge would give 8 vCPUs and 32 GB of memory for +$0.15/hr; no difference in GPU though
           MinCount: 0
-          MaxCount: 6
-          SchedulableMemory: 15500 # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
+          MaxCount: 25
+          #SchedulableMemory: 15500 # see: https://docs.aws.amazon.com/parallelcluster/latest/ug/slurm-mem-based-scheduling-v3.html#slurm-mem-based-scheduling-realmemory-v3
       Networking:
         SubnetIds:
           - subnet-09886d02611b86d68

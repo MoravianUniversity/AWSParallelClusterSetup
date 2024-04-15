@@ -137,6 +137,11 @@ if lspci | grep -q NVIDIA && ! lsmod | grep -q nvidia ; then
     sed -i 's/^\( *# *if *!__GNUC_PREREQ *(7, *0) *||\) *defined *__cplusplus *$/\1 (defined __cplusplus \&\& !__GNUC_PREREQ (13, 0))/' /usr/include/bits/floatn.h
     sed -i 's/^\( *# *if *!__GNUC_PREREQ *(7, *0) *||\) *defined *__cplusplus *$/\1 (defined __cplusplus \&\& !__GNUC_PREREQ (13, 0))/' /usr/include/bits/floatn-common.h
 
+    # Enable profiling for all users
+    cat >/etc/modprobe.d/nvidia_profile_perm.conf <<EOF
+options nvidia NVreg_RestrictProfilingToAdminUsers=0
+EOF
+
     # Reboot to load the NVIDIA driver
     reboot now
 fi
@@ -149,6 +154,18 @@ export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 EOF
     chmod 644 /etc/profile.d/cuda.sh
     cp /etc/profile.d/cuda.sh /etc/profile.d/cuda.csh
+
+    # Enable profiling for all users (only needed if the driver was already loaded and the conf file was not set up)
+    rmmod nvidia_uvm || true
+    rmmod nvidia_drm || true
+    rmmod nvidia_modeset || true
+    killall nvidia-pe || true
+    killall nvidia || true
+    rmmod nvidia || true
+    modprobe nvidia NVreg_RestrictProfilingToAdminUsers=0 || true
+    modprobe nvidia_modeset || true
+    modprobe nvidia_drm || true
+    modprobe nvidia_uvm || true
 fi
 
 
